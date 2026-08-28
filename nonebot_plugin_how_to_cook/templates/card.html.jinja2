@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="{{ theme }}">
+  <head>
+    <meta charset="utf-8" />
+    {% if document.asset_base_url %}<base href="{{ document.asset_base_url.rstrip('/') }}/" />{% endif %}
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f0e8;
+        --paper: rgba(255, 253, 248, 0.96);
+        --paper-soft: #f9f4eb;
+        --ink: #29251f;
+        --muted: #756d62;
+        --line: rgba(91, 74, 52, 0.13);
+        --accent: #d95d39;
+        --accent-2: #e9a23b;
+        --chip: #f5e5d7;
+        --shadow: rgba(64, 43, 25, 0.15);
+        --code: #f0e9df;
+      }
+      html[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #151311;
+        --paper: rgba(34, 31, 28, 0.97);
+        --paper-soft: #292520;
+        --ink: #f3ede4;
+        --muted: #bcb2a6;
+        --line: rgba(255, 239, 219, 0.12);
+        --accent: #ff7656;
+        --accent-2: #f2b34f;
+        --chip: #493229;
+        --shadow: rgba(0, 0, 0, 0.38);
+        --code: #322d28;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; width: {{ render_width }}px; }
+      body {
+        min-height: 100vh;
+        padding: 34px;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 8% 2%, rgba(233, 162, 59, 0.24), transparent 26%),
+          radial-gradient(circle at 94% 11%, rgba(217, 93, 57, 0.20), transparent 31%),
+          var(--bg);
+        font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
+        font-size: 18px;
+        line-height: 1.78;
+      }
+      .card {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 30px;
+        background: var(--paper);
+        box-shadow: 0 24px 70px var(--shadow);
+      }
+      .hero {
+        position: relative;
+        display: grid;
+        grid-template-columns: {% if cover_src %}minmax(0, 1.25fr) minmax(250px, .75fr){% else %}1fr{% endif %};
+        min-height: 310px;
+        border-bottom: 1px solid var(--line);
+      }
+      .hero-copy { padding: 54px 48px 46px; align-self: center; }
+      .kicker {
+        margin-bottom: 16px;
+        color: var(--accent);
+        font-size: 14px;
+        font-weight: 800;
+        letter-spacing: .17em;
+      }
+      h1 {
+        margin: 0;
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 46px;
+        line-height: 1.2;
+        letter-spacing: -.03em;
+      }
+      .description { margin: 20px 0 0; color: var(--muted); font-size: 18px; }
+      .cover { position: relative; min-height: 310px; overflow: hidden; background: var(--paper-soft); }
+      .cover img { width: 100%; height: 100%; min-height: 310px; object-fit: cover; display: block; }
+      .cover::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        box-shadow: inset 32px 0 48px -42px rgba(0,0,0,.7);
+        pointer-events: none;
+      }
+      .stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 24px 48px;
+        border-bottom: 1px solid var(--line);
+        background: var(--paper-soft);
+      }
+      .stat {
+        display: inline-flex;
+        gap: 8px;
+        align-items: baseline;
+        padding: 8px 14px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--chip);
+      }
+      .stat-label { color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .05em; }
+      .stat-value { font-size: 16px; font-weight: 750; }
+      .content { padding: 40px 48px 28px; }
+      .content > :first-child { margin-top: 0; }
+      .content > :last-child { margin-bottom: 0; }
+      h2, h3, h4, h5, h6 {
+        color: var(--ink);
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        line-height: 1.35;
+      }
+      h2 { margin: 1.8em 0 .75em; padding-bottom: .42em; font-size: 30px; border-bottom: 2px solid var(--line); }
+      h2::before { content: ""; display: inline-block; width: 8px; height: .8em; margin-right: 12px; border-radius: 9px; background: linear-gradient(var(--accent), var(--accent-2)); }
+      h3 { margin: 1.55em 0 .6em; font-size: 24px; }
+      h4 { margin: 1.35em 0 .5em; font-size: 20px; }
+      p { margin: .8em 0; }
+      ul, ol { margin: .65em 0 1em; padding-left: 1.65em; }
+      li { margin: .34em 0; padding-left: .18em; }
+      li::marker { color: var(--accent); font-weight: 800; }
+      blockquote { margin: 1.2em 0; padding: 14px 20px; border-left: 5px solid var(--accent); border-radius: 0 14px 14px 0; color: var(--muted); background: var(--paper-soft); }
+      code { padding: .14em .38em; border-radius: 7px; color: var(--accent); background: var(--code); font-family: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace; font-size: .88em; }
+      pre { overflow-wrap: anywhere; white-space: pre-wrap; padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--code); }
+      pre code { padding: 0; color: var(--ink); background: transparent; }
+      a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+      .content img { display: block; max-width: 100%; max-height: 820px; margin: 24px auto; border-radius: 18px; box-shadow: 0 12px 32px var(--shadow); object-fit: contain; }
+      table { width: 100%; margin: 22px 0; border-spacing: 0; border-collapse: separate; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; font-size: 15px; }
+      th, td { padding: 11px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+      th { background: var(--chip); font-weight: 750; }
+      tr:last-child td { border-bottom: 0; }
+      th:last-child, td:last-child { border-right: 0; }
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 22px 48px 30px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .brand { color: var(--accent); font-weight: 800; letter-spacing: .08em; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <header class="hero">
+        <div class="hero-copy">
+          <div class="kicker">{{ document.kicker }}</div>
+          <h1>{{ document.title }}</h1>
+          {% if document.description %}<p class="description">{{ document.description }}</p>{% endif %}
+        </div>
+        {% if cover_src %}
+          <div class="cover"><img src="{{ cover_src }}" alt="{{ document.cover_alt }}" /></div>
+        {% endif %}
+      </header>
+      {% if document.stats %}
+        <section class="stats">
+          {% for label, value in document.stats %}
+            <div class="stat"><span class="stat-label">{{ label }}</span><span class="stat-value">{{ value }}</span></div>
+          {% endfor %}
+        </section>
+      {% endif %}
+      <article class="content">{{ body_html }}</article>
+      <footer class="footer"><span>{{ document.footer }}</span><span class="brand">HOW TO COOK × NONEBOT2</span></footer>
+    </main>
+  </body>
+</html>

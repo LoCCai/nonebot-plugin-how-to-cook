@@ -1,0 +1,64 @@
+[project]
+name = "nonebot-plugin-how-to-cook"
+version = "0.1.0"
+description = "A complete, configurable NoneBot2 client for HowToCook API"
+authors = [
+    { name = "LoCCai", email = "loccai@qq.com" },
+]
+dependencies = [
+    "nonebot2>=2.4.0,<3.0.0",
+    "nonebot-adapter-onebot>=2.4.0,<3.0.0",
+    "nonebot-plugin-htmlrender>=0.7.0,<0.8.0",
+    "httpx>=0.27.0,<1.0.0",
+    "jinja2>=3.1.0,<4.0.0",
+    "markdown-it-py>=3.0.0,<5.0.0",
+]
+requires-python = ">=3.10,<4.0"
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["nonebot2", "nonebot", "howtocook", "recipe", "qqbot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/LoCCai/nonebot-plugin-how-to-cook"
+Repository = "https://github.com/LoCCai/nonebot-plugin-how-to-cook"
+Issues = "https://github.com/LoCCai/nonebot-plugin-how-to-cook/issues"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.24.0,<2.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["nonebot_plugin_how_to_cook"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "B008",  # NoneBot dependency injection intentionally uses calls in defaults.
+    "RUF001",  # Chinese user-facing copy intentionally uses full-width punctuation.
+]
+
+[tool.ruff.format]
+quote-style = "double"

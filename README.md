@@ -1,0 +1,157 @@
+# nonebot-plugin-how-to-cook
+
+面向 [HowToCook API](https://github.com/LoCCai/HowToCook-API) 的完整 NoneBot2 客户端。它不只做菜名搜索，还覆盖菜谱详情、结构化原料/工具/步骤、原始段落、备注、图片、Markdown、HTML、原文、烹饪技巧与健康检查。
+
+插件默认使用设计过的 HTML 长图卡片，也可以全局配置或按命令切换为合并消息、单消息、组合消息。长图超过设定大小或高度后会自动转成群文件。
+
+## 卡片预览
+
+| 白天主题 | 夜间主题 |
+| --- | --- |
+| <img src="docs/preview-light.webp" alt="HowToCook 白天菜谱卡" width="420"> | <img src="docs/preview-dark.webp" alt="HowToCook 夜间菜谱卡" width="420"> |
+
+## 功能
+
+- 模糊搜索：中文标题、拼音全拼、拼音首字母、原料与正文
+- 完整筛选：分类、难度、最高难度、原料、排序、分页、字段和图片模式
+- 完整菜谱：元信息、原料、工具、步骤、段落、备注、图片、Markdown、HTML 与原文
+- 烹饪技巧：列表、搜索、分组、详情、元信息、Markdown、HTML 与原文
+- 受控通用 GET 入口：覆盖 `health`、`categories`、`recipes`、`tips`、`assets`
+- 四种输出：`forward`、`single`、`combined`、`render`
+- 自动昼夜主题：默认按 `Asia/Shanghai` 在 23:00–08:00 使用夜间卡片
+- 直连优先：先忽略进程代理直连 API，仅在传输失败后按配置尝试环境代理
+- 安全降级：渲染失败后降级文本模式；群文件上传结果未知时不自动重传
+
+## 安装
+
+```bash
+pip install git+https://github.com/LoCCai/nonebot-plugin-how-to-cook.git
+```
+
+使用 `nb-cli` 或 NoneBot 配置加载 `nonebot_plugin_how_to_cook`。插件依赖 `nonebot-plugin-htmlrender` 0.7.x，并支持 OneBot V11。
+
+HowToCook API 需要单独部署。API 默认示例地址为 `http://127.0.0.1:3000/api`，插件不包含菜谱内容，也不会在服务端抓取外部网页。
+
+## 指令
+
+主命令为 `做饭`，别名为 `怎么做`、`今天吃什么`。
+
+```text
+做饭 帮助
+做饭 健康
+做饭 分类
+
+做饭 搜索 红烧肉
+做饭 hsr
+做饭 搜索 土豆 --原料 牛肉 --最高难度 3 --排序 difficulty --页 1
+
+做饭 详情 0eb9f4426a
+做饭 元信息 0eb9f4426a
+做饭 原料 0eb9f4426a
+做饭 工具 0eb9f4426a
+做饭 步骤 0eb9f4426a
+做饭 段落 0eb9f4426a
+做饭 备注 0eb9f4426a
+做饭 图片 0eb9f4426a
+做饭 Markdown 0eb9f4426a
+做饭 HTML 0eb9f4426a
+做饭 原文 0eb9f4426a
+
+做饭 技巧
+做饭 技巧 厨房 --分组 advanced
+做饭 技巧详情 f41f2354ac
+做饭 技巧元信息 f41f2354ac
+做饭 技巧MD f41f2354ac
+做饭 技巧HTML f41f2354ac
+做饭 技巧原文 f41f2354ac
+
+做饭 接口 recipes q=番茄 page_size=5 image_mode=server
+```
+
+稳定 ID 与 URL 编码后的仓库相对路径都可以作为菜谱/技巧标识。
+
+### 单次覆盖输出与主题
+
+任意命令可追加：
+
+```text
+--模式 合并|单条|组合|渲染
+--主题 自动|白天|夜间
+```
+
+例如：
+
+```text
+做饭 详情 0eb9f4426a --模式 组合
+做饭 技巧详情 f41f2354ac --模式 渲染 --主题 夜间
+```
+
+四种模式的行为：
+
+| 模式 | 配置值 | 行为 |
+| --- | --- | --- |
+| 合并消息 | `forward` | 按自然边界拆成 OneBot 合并转发节点 |
+| 单消息 | `single` | 摘要、成品图和完整文本放在一条消息内 |
+| 组合消息 | `combined` | 先发摘要与成品图，再发详细文本消息 |
+| 全局渲染 | `render` | Markdown 转 HTML，使用完整卡片布局输出长图 |
+
+## 配置
+
+所有配置均可写入 NoneBot 使用的 `.env`。布尔值使用 `true/false`。
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `HOW_TO_COOK_API_BASE_URL` | `http://127.0.0.1:3000/api` | API 基址，必须包含 `/api` |
+| `HOW_TO_COOK_REQUEST_TIMEOUT` | `15` | HTTP 超时秒数 |
+| `HOW_TO_COOK_DIRECT_FIRST` | `true` | 优先使用不读取环境代理的直连请求 |
+| `HOW_TO_COOK_PROXY_FALLBACK` | `true` | 直连发生传输错误后尝试环境代理 |
+| `HOW_TO_COOK_IMAGE_MODE` | `server` | `relative` / `server` / `proxy` |
+| `HOW_TO_COOK_DEFAULT_PAGE_SIZE` | `8` | 搜索与技巧默认每页数量 |
+| `HOW_TO_COOK_MAX_PAGE_SIZE` | `20` | Bot 单次展示上限 |
+| `HOW_TO_COOK_RESPONSE_MODE` | `render` | 全局输出模式 |
+| `HOW_TO_COOK_RENDER_FALLBACK_MODE` | `forward` | HTML 渲染失败后的文本模式 |
+| `HOW_TO_COOK_MESSAGE_CHUNK_SIZE` | `3200` | 组合模式文本分段长度 |
+| `HOW_TO_COOK_FORWARD_NODE_SIZE` | `1800` | 合并转发节点长度 |
+| `HOW_TO_COOK_FORWARD_NAME` | `七七 · 今天吃什么` | 合并转发节点昵称 |
+| `HOW_TO_COOK_THEME` | `auto` | `auto` / `light` / `dark` |
+| `HOW_TO_COOK_TIMEZONE` | `Asia/Shanghai` | 自动主题时区 |
+| `HOW_TO_COOK_DARK_START` | `23:00` | 夜间主题开始时间 |
+| `HOW_TO_COOK_DARK_END` | `08:00` | 夜间主题结束时间 |
+| `HOW_TO_COOK_RENDER_WIDTH` | `920` | CSS 像素宽度 |
+| `HOW_TO_COOK_RENDER_SCALE` | `1.5` | 浏览器截图缩放倍数 |
+| `HOW_TO_COOK_RENDER_WAIT_MS` | `200` | 截图前等待资源时间 |
+| `HOW_TO_COOK_RENDER_TIMEOUT_SECONDS` | `45` | 浏览器截图超时 |
+| `HOW_TO_COOK_LARGE_IMAGE_BYTES` | `8388608` | 超过此字节数转群文件 |
+| `HOW_TO_COOK_LARGE_IMAGE_HEIGHT` | `14000` | 超过此 PNG 高度转群文件 |
+| `HOW_TO_COOK_IMAGE_DOWNLOAD_BYTES` | `12582912` | 成品图下载上限 |
+| `HOW_TO_COOK_UPLOAD_LARGE_GROUP_FILE` | `true` | 群聊中过大长图转群文件 |
+
+示例：
+
+```dotenv
+HOW_TO_COOK_API_BASE_URL=http://your-api-host:10044/api
+HOW_TO_COOK_RESPONSE_MODE=render
+HOW_TO_COOK_THEME=auto
+HOW_TO_COOK_TIMEZONE=Asia/Shanghai
+HOW_TO_COOK_DARK_START=23:00
+HOW_TO_COOK_DARK_END=08:00
+```
+
+夜间区间可以跨午夜，也可以配置成普通日内区间；开始与结束相同时表示全天夜间主题。
+
+## API 响应兼容
+
+结构化接口按 `{ "data": ..., "meta": ... }` 解包，错误按 `{ "error": { "code", "message" } }` 展示。`markdown`、`html`、`raw` 和静态资源接口实际返回对应的文本或二进制内容，客户端会按 `Content-Type` 处理，不强制要求 JSON 外壳。
+
+通用接口命令不会接受任意 URL、请求体或非 GET 方法，也拒绝路径穿越。它只允许访问当前配置的 HowToCook API 下已知只读路由。
+
+## 开发验证
+
+```bash
+python -m pytest -q
+ruff check .
+ruff format --check .
+python -m build
+```
+
+菜谱正文来自 [Anduin2017/HowToCook](https://github.com/Anduin2017/HowToCook) 社区贡献者；内容许可与署名以源仓库为准。插件源码使用 MIT License。
