@@ -26,6 +26,65 @@ async def test_search_service_applies_defaults() -> None:
 
 
 @pytest.mark.asyncio
+async def test_single_search_result_returns_recipe_detail_directly() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/recipes":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": "only-one", "title": "唯一菜谱"}],
+                    "meta": {"total": 1, "page": 1, "pages": 1, "q": "唯一"},
+                },
+            )
+        assert request.url.path == "/api/recipes/only-one"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "id": "only-one",
+                    "title": "唯一菜谱",
+                    "ingredients": [],
+                    "tools": [],
+                    "steps": [],
+                },
+                "meta": {},
+            },
+        )
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    document = await execute_command(client, parse_command("搜索 唯一"), Config())
+
+    assert document.title == "唯一菜谱"
+    assert document.layout == "article"
+    assert document.recipe_choices == []
+    assert len(requests) == 2
+    assert requests[1].url.params["image_mode"] == "server"
+
+
+@pytest.mark.asyncio
+async def test_multiple_search_results_keep_choices_for_waiter() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "first", "title": "第一道菜"},
+                    {"id": "second", "title": "第二道菜"},
+                ],
+                "meta": {"total": 2, "page": 1, "pages": 1, "q": "菜"},
+            },
+        )
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    document = await execute_command(client, parse_command("搜索 菜"), Config())
+
+    assert [choice.identifier for choice in document.recipe_choices] == ["first", "second"]
+
+
+@pytest.mark.asyncio
 async def test_service_caps_bot_page_size() -> None:
     client = HowToCookClient(
         "http://cook.test/api",

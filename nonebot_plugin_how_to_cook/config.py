@@ -23,6 +23,8 @@ class Config(BaseModel):
     how_to_cook_image_mode: Literal["relative", "server", "proxy"] = "server"
     how_to_cook_default_page_size: int = Field(default=8, ge=1, le=100)
     how_to_cook_max_page_size: int = Field(default=20, ge=1, le=100)
+    how_to_cook_selection_timeout_seconds: int = Field(default=120, ge=10, le=600)
+    how_to_cook_reminder_recall_seconds: int = Field(default=15, ge=3, le=120)
 
     how_to_cook_response_mode: ResponseMode = "render"
     how_to_cook_render_fallback_mode: Literal["forward", "single", "combined"] = "forward"

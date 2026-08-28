@@ -14,7 +14,7 @@ from markupsafe import Markup
 
 from .config import Config, ThemeMode
 from .content import Document
-from .themes import resolve_theme
+from .themes import localize_time, resolve_theme
 
 _ALLOWED_TAGS = {
     "a",
@@ -182,6 +182,9 @@ class CardRenderer:
             body_html=Markup(body_html),
             cover_src=cover_src,
             render_width=self.config.how_to_cook_render_width,
+            rendered_at=localize_time(self.config.how_to_cook_timezone, now).strftime(
+                "%Y-%m-%d %H:%M"
+            ),
         )
         return html, selected_theme
 

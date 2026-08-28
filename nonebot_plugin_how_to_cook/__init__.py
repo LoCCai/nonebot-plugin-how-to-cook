@@ -2,6 +2,7 @@ from nonebot import require
 from nonebot.plugin import PluginMetadata
 
 require("nonebot_plugin_htmlrender")
+require("nonebot_plugin_waiter")
 
 from .config import Config  # noqa: E402
 from .matcher import how_to_cook as how_to_cook  # noqa: E402
@@ -18,7 +19,7 @@ _MENU_GROUP = {
 __plugin_meta__ = PluginMetadata(
     name="HowToCook 菜谱",
     description="搜索 HowToCook 菜谱并展示完整原料、步骤、成品图和烹饪技巧",
-    usage="做饭 帮助｜做饭 搜索 <菜名/拼音/原料>｜做饭 详情 <ID>",
+    usage="做饭 <菜名/拼音/原料>｜多结果时回复序号｜做饭 帮助",
     type="application",
     homepage="https://github.com/LoCCai/nonebot-plugin-how-to-cook",
     config=Config,
@@ -40,9 +41,11 @@ __plugin_meta__ = PluginMetadata(
                 "detail_des": (
                     "搜索支持中文标题、拼音全拼、拼音首字母、原料和正文。"
                     "可追加 `--分类`、`--难度`、`--最高难度`、`--原料`、"
-                    "`--排序`、`--页` 和 `--每页`。\n\n## 示例\n\n"
+                    "`--排序`、`--页` 和 `--每页`。只有一个结果时直接展示完整详情；"
+                    "多个结果时发送卡片中的序号即可继续，无需复制菜谱 ID。\n\n## 示例\n\n"
                     "- `<命令前缀>做饭 hsr`\n"
-                    "- `<命令前缀>做饭 搜索 土豆 --原料 牛肉 --最高难度 3`"
+                    "- `<命令前缀>做饭 搜索 土豆 --原料 牛肉 --最高难度 3`\n"
+                    "- 搜索卡片出现后回复 `1`、`2` 等序号"
                 ),
                 "pmn_hidden": False,
                 "pmn_triggers": [
@@ -57,17 +60,18 @@ __plugin_meta__ = PluginMetadata(
                 "pmn_group": _MENU_GROUP,
             },
             {
-                "func": "完整菜谱与结构化子资源",
+                "func": "完整菜谱与进阶子资源",
                 "trigger_method": (
                     "- **命令**：`<命令前缀>做饭 详情 <ID或路径>`\n"
                     "- **命令**：`<命令前缀>做饭 原料|工具|步骤|段落|备注|图片 <ID>`\n"
                     "- **命令**：`<命令前缀>做饭 元信息|Markdown|HTML|原文 <ID>`"
                 ),
-                "trigger_condition": "使用搜索结果中的稳定 ID，或 URL 编码后的仓库相对路径",
-                "brief_des": "查看菜谱完整字段、正文、图片与每一类结构化数据。",
+                "trigger_condition": "一般从搜索列表回复序号；进阶命令可使用稳定 ID 或仓库相对路径",
+                "brief_des": "回复搜索序号查看完整菜谱，或按 ID 直达每一类结构化数据。",
                 "detail_des": (
                     "详情包含分类、难度、卡路里、用时、烹饪方式、作者、完整原料、"
-                    "工具、步骤、备注、正文与成品图。所有 recipes 子接口均有直接命令入口。"
+                    "工具、步骤、备注、正文与成品图。日常使用无需复制 ID；"
+                    "所有 recipes 子接口仍保留直接命令入口。"
                 ),
                 "pmn_hidden": False,
                 "pmn_triggers": [

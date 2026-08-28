@@ -7,41 +7,47 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f5f0e8;
-        --paper: rgba(255, 253, 248, 0.96);
-        --paper-soft: #f9f4eb;
+        --bg: #f3efe9;
+        --paper: rgba(255, 254, 251, 0.97);
+        --paper-soft: #faf6ef;
         --ink: #29251f;
         --muted: #756d62;
         --line: rgba(91, 74, 52, 0.13);
-        --accent: #d95d39;
-        --accent-2: #e9a23b;
-        --chip: #f5e5d7;
+        --accent: #db5f3e;
+        --accent-2: #eca53e;
+        --qiqi: #8062c6;
+        --qiqi-soft: #f2ecff;
+        --chip: #f5e7da;
         --shadow: rgba(64, 43, 25, 0.15);
         --code: #f0e9df;
+        --footer: #f7f2ff;
       }
       html[data-theme="dark"] {
         color-scheme: dark;
         --bg: #151311;
-        --paper: rgba(34, 31, 28, 0.97);
+        --paper: rgba(34, 31, 28, 0.98);
         --paper-soft: #292520;
-        --ink: #f3ede4;
-        --muted: #bcb2a6;
+        --ink: #f4eee6;
+        --muted: #bdb3a8;
         --line: rgba(255, 239, 219, 0.12);
-        --accent: #ff7656;
-        --accent-2: #f2b34f;
+        --accent: #ff7958;
+        --accent-2: #f3b44f;
+        --qiqi: #b69cff;
+        --qiqi-soft: #302943;
         --chip: #493229;
-        --shadow: rgba(0, 0, 0, 0.38);
+        --shadow: rgba(0, 0, 0, 0.4);
         --code: #322d28;
+        --footer: #272233;
       }
       * { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; width: {{ render_width }}px; }
+      html, body { width: {{ render_width }}px; margin: 0; padding: 0; }
       body {
         min-height: 100vh;
         padding: 34px;
         color: var(--ink);
         background:
-          radial-gradient(circle at 8% 2%, rgba(233, 162, 59, 0.24), transparent 26%),
-          radial-gradient(circle at 94% 11%, rgba(217, 93, 57, 0.20), transparent 31%),
+          radial-gradient(circle at 8% 2%, rgba(236, 165, 62, 0.25), transparent 26%),
+          radial-gradient(circle at 94% 11%, rgba(128, 98, 198, 0.20), transparent 31%),
           var(--bg);
         font-family: "Noto Sans CJK SC", "Source Han Sans SC", "Microsoft YaHei", sans-serif;
         font-size: 18px;
@@ -59,15 +65,65 @@
         display: grid;
         grid-template-columns: {% if cover_src %}minmax(0, 1.25fr) minmax(250px, .75fr){% else %}1fr{% endif %};
         min-height: 310px;
+        overflow: hidden;
         border-bottom: 1px solid var(--line);
       }
-      .hero-copy { padding: 54px 48px 46px; align-self: center; }
+      .hero::before,
+      .hero::after {
+        position: absolute;
+        z-index: 0;
+        border-radius: 50%;
+        content: "";
+        pointer-events: none;
+      }
+      .hero::before {
+        top: -92px;
+        left: -68px;
+        width: 220px;
+        height: 220px;
+        background: rgba(236, 165, 62, 0.12);
+      }
+      .hero::after {
+        right: 28%;
+        bottom: -110px;
+        width: 240px;
+        height: 240px;
+        background: rgba(128, 98, 198, 0.10);
+      }
+      .hero-copy {
+        position: relative;
+        z-index: 1;
+        align-self: center;
+        padding: 54px 48px 46px;
+      }
+      .hero-list {
+        min-height: 230px;
+        background:
+          linear-gradient(120deg, rgba(128, 98, 198, 0.10), transparent 58%),
+          linear-gradient(300deg, rgba(236, 165, 62, 0.10), transparent 55%);
+      }
+      .hero-list .hero-copy { padding-top: 43px; padding-bottom: 41px; }
       .kicker {
+        display: flex;
+        gap: 9px;
+        align-items: center;
         margin-bottom: 16px;
         color: var(--accent);
         font-size: 14px;
-        font-weight: 800;
+        font-weight: 850;
         letter-spacing: .17em;
+      }
+      .kicker::before {
+        display: grid;
+        width: 25px;
+        height: 25px;
+        place-items: center;
+        border-radius: 9px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--qiqi), var(--accent));
+        content: "Q";
+        font-size: 13px;
+        letter-spacing: 0;
       }
       h1 {
         margin: 0;
@@ -76,14 +132,15 @@
         line-height: 1.2;
         letter-spacing: -.03em;
       }
-      .description { margin: 20px 0 0; color: var(--muted); font-size: 18px; }
-      .cover { position: relative; min-height: 310px; overflow: hidden; background: var(--paper-soft); }
-      .cover img { width: 100%; height: 100%; min-height: 310px; object-fit: cover; display: block; }
+      .hero-list h1 { font-size: 42px; }
+      .description { max-width: 650px; margin: 20px 0 0; color: var(--muted); font-size: 18px; }
+      .cover { position: relative; z-index: 1; min-height: 310px; overflow: hidden; background: var(--paper-soft); }
+      .cover img { display: block; width: 100%; height: 100%; min-height: 310px; object-fit: cover; }
       .cover::after {
-        content: "";
         position: absolute;
         inset: 0;
-        box-shadow: inset 32px 0 48px -42px rgba(0,0,0,.7);
+        box-shadow: inset 32px 0 48px -42px rgba(0, 0, 0, .7);
+        content: "";
         pointer-events: none;
       }
       .stats {
@@ -105,6 +162,128 @@
       }
       .stat-label { color: var(--muted); font-size: 13px; font-weight: 700; letter-spacing: .05em; }
       .stat-value { font-size: 16px; font-weight: 750; }
+
+      .search-content { padding: 31px 40px 38px; }
+      .selection-guide {
+        display: flex;
+        gap: 14px;
+        align-items: center;
+        margin-bottom: 20px;
+        padding: 14px 17px;
+        border: 1px solid color-mix(in srgb, var(--qiqi) 28%, transparent);
+        border-radius: 16px;
+        background: var(--qiqi-soft);
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+      .guide-mark {
+        display: grid;
+        flex: 0 0 34px;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 12px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--qiqi), var(--accent));
+        font-size: 18px;
+        font-weight: 850;
+      }
+      .selection-guide strong { color: var(--ink); }
+      .recipe-list { display: grid; gap: 15px; }
+      .recipe-item {
+        display: grid;
+        grid-template-columns: 176px minmax(0, 1fr);
+        min-height: 154px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--paper-soft);
+        box-shadow: 0 7px 18px rgba(49, 38, 27, 0.06);
+      }
+      .recipe-thumb {
+        position: relative;
+        min-height: 154px;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at 30% 25%, rgba(255, 255, 255, .34), transparent 28%),
+          linear-gradient(145deg, var(--accent-2), var(--accent));
+      }
+      .recipe-thumb img { display: block; width: 100%; height: 100%; min-height: 154px; object-fit: cover; }
+      .recipe-placeholder {
+        display: grid;
+        width: 100%;
+        min-height: 154px;
+        place-items: center;
+        color: rgba(255, 255, 255, .92);
+        font-size: 46px;
+      }
+      .recipe-index {
+        position: absolute;
+        top: 11px;
+        left: 11px;
+        z-index: 2;
+        display: grid;
+        min-width: 39px;
+        height: 39px;
+        padding: 0 8px;
+        place-items: center;
+        border: 2px solid rgba(255, 255, 255, .68);
+        border-radius: 13px;
+        color: #fff;
+        background: rgba(30, 24, 20, .72);
+        box-shadow: 0 5px 14px rgba(0, 0, 0, .23);
+        font-size: 17px;
+        font-weight: 850;
+      }
+      .recipe-copy {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 18px 20px 16px;
+        text-align: left;
+      }
+      .recipe-title {
+        overflow-wrap: anywhere;
+        color: var(--ink);
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 24px;
+        font-weight: 800;
+        line-height: 1.32;
+      }
+      .match-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 10px; }
+      .match-tag {
+        padding: 2px 8px;
+        border-radius: 999px;
+        color: var(--qiqi);
+        background: var(--qiqi-soft);
+        font-size: 11px;
+        font-weight: 750;
+      }
+      .recipe-meta { display: flex; flex-wrap: wrap; gap: 7px 9px; align-items: flex-end; margin-top: auto; }
+      .meta-pill {
+        display: inline-flex;
+        gap: 5px;
+        align-items: baseline;
+        padding: 4px 8px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--paper);
+        line-height: 1.35;
+      }
+      .meta-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+      .meta-value { color: var(--ink); font-size: 12px; font-weight: 750; }
+      .empty-state {
+        padding: 50px 25px;
+        border: 1px dashed var(--line);
+        border-radius: 20px;
+        color: var(--muted);
+        background: var(--paper-soft);
+        text-align: center;
+      }
+      .empty-icon { display: block; margin-bottom: 9px; font-size: 38px; }
+
       .content { padding: 40px 48px 28px; }
       .content > :first-child { margin-top: 0; }
       .content > :last-child { margin-bottom: 0; }
@@ -113,8 +292,8 @@
         font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
         line-height: 1.35;
       }
-      h2 { margin: 1.8em 0 .75em; padding-bottom: .42em; font-size: 30px; border-bottom: 2px solid var(--line); }
-      h2::before { content: ""; display: inline-block; width: 8px; height: .8em; margin-right: 12px; border-radius: 9px; background: linear-gradient(var(--accent), var(--accent-2)); }
+      h2 { margin: 1.8em 0 .75em; padding-bottom: .42em; border-bottom: 2px solid var(--line); font-size: 30px; }
+      h2::before { display: inline-block; width: 8px; height: .8em; margin-right: 12px; border-radius: 9px; background: linear-gradient(var(--accent), var(--accent-2)); content: ""; }
       h3 { margin: 1.55em 0 .6em; font-size: 24px; }
       h4 { margin: 1.35em 0 .5em; font-size: 20px; }
       p { margin: .8em 0; }
@@ -123,35 +302,40 @@
       li::marker { color: var(--accent); font-weight: 800; }
       blockquote { margin: 1.2em 0; padding: 14px 20px; border-left: 5px solid var(--accent); border-radius: 0 14px 14px 0; color: var(--muted); background: var(--paper-soft); }
       code { padding: .14em .38em; border-radius: 7px; color: var(--accent); background: var(--code); font-family: "JetBrains Mono", "Noto Sans Mono CJK SC", monospace; font-size: .88em; }
-      pre { overflow-wrap: anywhere; white-space: pre-wrap; padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--code); }
+      pre { overflow-wrap: anywhere; padding: 20px; border: 1px solid var(--line); border-radius: 15px; background: var(--code); white-space: pre-wrap; }
       pre code { padding: 0; color: var(--ink); background: transparent; }
       a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
       .content img { display: block; max-width: 100%; max-height: 820px; margin: 24px auto; border-radius: 18px; box-shadow: 0 12px 32px var(--shadow); object-fit: contain; }
-      table { width: 100%; margin: 22px 0; border-spacing: 0; border-collapse: separate; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; font-size: 15px; }
+      table { width: 100%; margin: 22px 0; overflow: hidden; border: 1px solid var(--line); border-spacing: 0; border-collapse: separate; border-radius: 14px; font-size: 15px; }
       th, td { padding: 11px 12px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
       th { background: var(--chip); font-weight: 750; }
       tr:last-child td { border-bottom: 0; }
       th:last-child, td:last-child { border-right: 0; }
+
       .footer {
-        display: flex;
-        justify-content: space-between;
-        gap: 20px;
-        padding: 22px 48px 30px;
-        color: var(--muted);
-        font-size: 13px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        padding: 19px 28px 22px;
+        border-top: 1px dashed color-mix(in srgb, var(--qiqi) 32%, transparent);
+        background: var(--footer);
+        text-align: center;
       }
-      .brand { color: var(--accent); font-weight: 800; letter-spacing: .08em; }
+      .footer-unit { padding: 2px 13px; }
+      .footer-unit + .footer-unit { border-left: 1px solid var(--line); }
+      .footer-label { display: block; color: var(--muted); font-size: 11px; font-weight: 750; letter-spacing: .07em; }
+      .footer-value { display: block; margin-top: 2px; color: var(--ink); font-size: 13px; font-weight: 800; }
+      .footer-brand .footer-label { color: var(--qiqi); font-size: 13px; font-weight: 900; letter-spacing: .1em; }
     </style>
   </head>
   <body>
     <main class="card">
-      <header class="hero">
+      <header class="hero{% if document.layout == 'recipe_list' %} hero-list{% endif %}">
         <div class="hero-copy">
           <div class="kicker">{{ document.kicker }}</div>
           <h1>{{ document.title }}</h1>
           {% if document.description %}<p class="description">{{ document.description }}</p>{% endif %}
         </div>
-        {% if cover_src %}
+        {% if cover_src and document.layout != 'recipe_list' %}
           <div class="cover"><img src="{{ cover_src }}" alt="{{ document.cover_alt }}" /></div>
         {% endif %}
       </header>
@@ -162,8 +346,54 @@
           {% endfor %}
         </section>
       {% endif %}
-      <article class="content">{{ body_html }}</article>
-      <footer class="footer"><span>{{ document.footer }}</span><span class="brand">HOW TO COOK × NONEBOT2</span></footer>
+      {% if document.layout == 'recipe_list' %}
+        <article class="search-content">
+          {% if document.recipe_choices %}
+            <div class="selection-guide">
+              <span class="guide-mark">#</span>
+              <span><strong>发送下方序号即可查看完整菜谱</strong><br />仅接收本次搜索发起者的回复，也可以发送“取消”结束选择。</span>
+            </div>
+            <div class="recipe-list">
+              {% for item in document.recipe_choices %}
+                <section class="recipe-item">
+                  <div class="recipe-thumb">
+                    <span class="recipe-index">{{ loop.index }}</span>
+                    {% if item.cover_url %}
+                      <img src="{{ item.cover_url }}" alt="{{ item.cover_alt }}" />
+                    {% else %}
+                      <div class="recipe-placeholder">🍳</div>
+                    {% endif %}
+                  </div>
+                  <div class="recipe-copy">
+                    <div>
+                      <div class="recipe-title">{{ item.title }}</div>
+                      {% if item.matched %}
+                        <div class="match-row">
+                          {% for matched in item.matched %}<span class="match-tag">命中 · {{ matched }}</span>{% endfor %}
+                        </div>
+                      {% endif %}
+                    </div>
+                    <div class="recipe-meta">
+                      {% for label, value in item.metadata %}
+                        <span class="meta-pill"><span class="meta-label">{{ label }}</span><span class="meta-value">{{ value }}</span></span>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </section>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state"><span class="empty-icon">🍽️</span>没有找到匹配菜谱，换个菜名、拼音或原料再试试。</div>
+          {% endif %}
+        </article>
+      {% else %}
+        <article class="content">{{ body_html }}</article>
+      {% endif %}
+      <footer class="footer">
+        <div class="footer-unit footer-brand"><span class="footer-label">QIQI-Bot</span><span class="footer-value">作者 LoCCai</span></div>
+        <div class="footer-unit"><span class="footer-label">数据驱动</span><span class="footer-value">How To Cook</span></div>
+        <div class="footer-unit"><span class="footer-label">渲染时间</span><span class="footer-value">{{ rendered_at }}</span></div>
+      </footer>
     </main>
   </body>
 </html>

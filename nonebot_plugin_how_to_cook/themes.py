@@ -32,6 +32,14 @@ def is_dark_time(current: int, start: int, end: int) -> bool:
     return current >= start or current < end
 
 
+def localize_time(timezone: str, now: datetime | None = None) -> datetime:
+    try:
+        zone = ZoneInfo(timezone)
+    except ZoneInfoNotFoundError as exc:
+        raise ThemeConfigurationError(f"未知时区：{timezone}") from exc
+    return now.astimezone(zone) if now is not None else datetime.now(zone)
+
+
 def resolve_theme(
     mode: ThemeMode,
     *,
@@ -42,11 +50,7 @@ def resolve_theme(
 ) -> str:
     if mode in {"light", "dark"}:
         return mode
-    try:
-        zone = ZoneInfo(timezone)
-    except ZoneInfoNotFoundError as exc:
-        raise ThemeConfigurationError(f"未知时区：{timezone}") from exc
-    localized = now.astimezone(zone) if now is not None else datetime.now(zone)
+    localized = localize_time(timezone, now)
     current = localized.hour * 60 + localized.minute
     return (
         "dark" if is_dark_time(current, parse_clock(dark_start), parse_clock(dark_end)) else "light"

@@ -5,7 +5,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from html import unescape
-from typing import Any
+from typing import Any, Literal
 
 from .api import APIResult
 
@@ -17,6 +17,16 @@ _MARKDOWN_MARK_RE = re.compile(r"(?m)^(#{1,6}|>|[-*+]\s)|[`*_~]")
 class Section:
     title: str
     text: str
+
+
+@dataclass(slots=True)
+class RecipeListItem:
+    identifier: str
+    title: str
+    metadata: list[tuple[str, str]] = field(default_factory=list)
+    cover_url: str | None = None
+    cover_alt: str = "菜谱成品图"
+    matched: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -35,6 +45,8 @@ class Document:
     asset_base_url: str | None = None
     footer: str = "内容来自 HowToCook 社区，仅供烹饪参考"
     filename_hint: str = "how-to-cook"
+    layout: Literal["article", "recipe_list"] = "article"
+    recipe_choices: list[RecipeListItem] = field(default_factory=list)
 
     def summary_text(self) -> str:
         lines = [f"🍳 {self.title}"]
@@ -136,6 +148,52 @@ def _recipe_stats(data: dict[str, Any]) -> list[tuple[str, str]]:
     if author != "未知":
         stats.append(("作者", author))
     return stats
+
+
+def _search_metadata(data: dict[str, Any]) -> list[tuple[str, str]]:
+    estimate = data.get("time_estimate")
+    if isinstance(estimate, dict):
+        duration = _text(estimate.get("text"), "未标注")
+    else:
+        duration = _text(estimate, "未标注")
+
+    calories = data.get("calories")
+    if isinstance(calories, dict) and calories.get("value") is not None:
+        calorie_text = f"{calories['value']} {calories.get('unit', '')}".strip()
+    else:
+        calorie_text = "未标注"
+
+    category = data.get("category")
+    category_text = (
+        _text(category.get("title"), "未分类") if isinstance(category, dict) else "未分类"
+    )
+    methods = data.get("methods")
+    method_text = (
+        " / ".join(str(item) for item in methods[:4])
+        if isinstance(methods, list) and methods
+        else "未标注"
+    )
+    updated_at = _text(data.get("updated_at"), "未标注")
+    if updated_at != "未标注":
+        updated_at = updated_at[:10]
+
+    return [
+        ("作者", _author_name(data.get("author"))),
+        ("耗时", duration),
+        ("热量", calorie_text),
+        ("难度", _text(data.get("difficulty_display") or data.get("difficulty"), "未标注")),
+        ("分类", category_text),
+        ("方式", method_text),
+        ("更新", updated_at),
+    ]
+
+
+_MATCHED_LABELS = {
+    "title": "标题",
+    "pinyin": "拼音",
+    "ingredients": "原料",
+    "content": "正文",
+}
 
 
 def _ingredient_lines(items: Any) -> str:
@@ -253,24 +311,36 @@ def recipe_document(data: Any, *, asset_base_url: str) -> Document:
 def recipe_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
     items = data if isinstance(data, list) else []
     sections: list[Section] = []
-    cover_url: str | None = None
-    cover_alt = "菜谱成品图"
-    for index, item in enumerate(items, 1):
+    choices: list[RecipeListItem] = []
+    for item in items:
         if not isinstance(item, dict):
             continue
         item_cover, item_alt = _cover(item)
-        if cover_url is None and item_cover:
-            cover_url, cover_alt = item_cover, item_alt
-        stats = _recipe_stats(item)
+        metadata = _search_metadata(item)
         matched = item.get("matched")
-        detail = [f"ID：{_text(item.get('id'))}"]
-        if stats:
-            detail.append(" · ".join(f"{key} {value}" for key, value in stats))
-        if isinstance(matched, list) and matched:
-            detail.append(f"命中：{' / '.join(str(value) for value in matched)}")
-        sections.append(
-            Section(f"{index}. {_text(item.get('title'), '未命名菜谱')}", "\n".join(detail))
+        matched_labels = (
+            [_MATCHED_LABELS.get(str(value), str(value)) for value in matched]
+            if isinstance(matched, list)
+            else []
         )
+        identifier = _text(item.get("id"), "")
+        title = _text(item.get("title"), "未命名菜谱")
+        if not identifier:
+            continue
+        choices.append(
+            RecipeListItem(
+                identifier=identifier,
+                title=title,
+                metadata=metadata,
+                cover_url=item_cover,
+                cover_alt=item_alt,
+                matched=matched_labels,
+            )
+        )
+        detail = [" · ".join(f"{key} {value}" for key, value in metadata)]
+        if isinstance(matched, list) and matched:
+            detail.append(f"命中：{' / '.join(matched_labels)}")
+        sections.append(Section(f"{len(choices)}. {title}", "\n".join(detail)))
     total = int(meta.get("total") or 0)
     page = int(meta.get("page") or 1)
     pages = int(meta.get("pages") or 1)
@@ -284,10 +354,10 @@ def recipe_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str
         description=description,
         stats=[("结果", str(total)), ("页码", f"{page}/{pages}")],
         sections=sections,
-        cover_url=cover_url,
-        cover_alt=cover_alt,
         asset_base_url=asset_base_url,
         filename_hint="HowToCook-搜索结果",
+        layout="recipe_list",
+        recipe_choices=choices,
     )
 
 
@@ -588,6 +658,7 @@ def help_document(*, asset_base_url: str) -> Document:
                     "• 做饭 搜索 红烧肉",
                     "• 做饭 hsr（支持拼音全拼/首字母）",
                     "• 做饭 搜索 土豆 --原料 牛肉 --最高难度 3 --页 1",
+                    "• 仅一个结果会直接展示详情；多个结果发送卡片序号选择",
                     "• 做饭 分类",
                 ]
             ),
@@ -596,7 +667,8 @@ def help_document(*, asset_base_url: str) -> Document:
             "完整菜谱",
             "\n".join(
                 [
-                    "• 做饭 详情 <ID或路径>",
+                    "• 通常直接在搜索结果后回复序号，无需手动复制 ID",
+                    "• 进阶直达：做饭 详情 <ID或路径>",
                     "• 做饭 原料/工具/步骤/段落/备注/图片 <ID>",
                     "• 做饭 元信息/Markdown/HTML/原文 <ID>",
                 ]

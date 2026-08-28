@@ -1,0 +1,93 @@
+from types import SimpleNamespace
+
+import pytest
+
+from nonebot_plugin_how_to_cook import interaction
+from nonebot_plugin_how_to_cook.interaction import (
+    parse_recipe_selection,
+    send_transient_notice,
+    wait_for_recipe_selection,
+)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("1", 0), (" 3 ", 2), ("取消", -1), ("cancel", -1), ("0", None), ("4", None)],
+)
+def test_parse_recipe_selection(value: str, expected: int | None) -> None:
+    assert parse_recipe_selection(value, 3) == expected
+
+
+@pytest.mark.asyncio
+async def test_waiter_keeps_session_and_returns_valid_index(monkeypatch) -> None:
+    captured = {}
+
+    class Reply:
+        def get_plaintext(self) -> str:
+            return "2"
+
+    class FakeWaiter:
+        def __init__(self, handler) -> None:
+            self.handler = handler
+
+        async def wait(self, *, timeout: int):
+            captured["timeout"] = timeout
+            return await self.handler(Reply())
+
+    def fake_waiter(**kwargs):
+        captured.update(kwargs)
+        return FakeWaiter
+
+    monkeypatch.setattr(interaction, "waiter", fake_waiter)
+
+    assert await wait_for_recipe_selection(3, timeout=120) == 1
+    assert captured["waits"] == ["message"]
+    assert captured["keep_session"] is True
+    assert captured["timeout"] == 120
+
+
+@pytest.mark.asyncio
+async def test_qiqi_notice_uses_shared_auto_recall(monkeypatch) -> None:
+    captured = {}
+
+    async def sender(**kwargs) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(
+        interaction,
+        "import_module",
+        lambda _name: SimpleNamespace(send_with_auto_recall=sender),
+    )
+
+    bot = object()
+    event = object()
+    await send_transient_notice(bot, event, "请选择序号", delay=15)  # type: ignore[arg-type]
+
+    assert captured == {
+        "bot": bot,
+        "event": event,
+        "message": "请选择序号",
+        "delay": 15,
+        "at_sender": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_notice_has_portable_plain_send_fallback(monkeypatch) -> None:
+    class FakeBot:
+        def __init__(self) -> None:
+            self.sent = []
+
+        async def send(self, event, message) -> None:
+            self.sent.append((event, message))
+
+    def unavailable(_name: str):
+        raise ModuleNotFoundError("src")
+
+    monkeypatch.setattr(interaction, "import_module", unavailable)
+    bot = FakeBot()
+    event = object()
+
+    await send_transient_notice(bot, event, "请选择序号", delay=15)  # type: ignore[arg-type]
+
+    assert bot.sent == [(event, "请选择序号")]

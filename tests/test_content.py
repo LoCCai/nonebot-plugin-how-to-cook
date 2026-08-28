@@ -38,17 +38,39 @@ def test_recipe_document_contains_complete_structured_text() -> None:
     assert "Chef" in text
 
 
-def test_recipe_search_selects_first_available_cover() -> None:
+def test_recipe_search_builds_numbered_visual_choices() -> None:
     document = recipe_list_document(
         [
             {"id": "1", "title": "A", "cover": None},
-            {"id": "2", "title": "B", "cover": {"url": "/assets/b.jpg"}},
+            {
+                "id": "2",
+                "title": "B",
+                "cover": {"url": "/assets/b.jpg"},
+                "author": "Chef",
+                "difficulty_display": "★★★",
+                "time_estimate": {"text": "30 分钟"},
+                "calories": {"value": 520, "unit": "大卡"},
+                "category": {"title": "荤菜"},
+                "methods": ["炒", "煮"],
+                "updated_at": "2026-08-28T12:00:00Z",
+                "matched": ["title", "ingredients"],
+            },
         ],
         {"total": 2, "page": 1, "pages": 1, "q": "test"},
         asset_base_url="http://cook.test",
     )
-    assert document.cover_url == "/assets/b.jpg"
+    assert document.layout == "recipe_list"
+    assert document.cover_url is None
     assert len(document.sections) == 2
+    assert [choice.identifier for choice in document.recipe_choices] == ["1", "2"]
+    assert document.recipe_choices[1].cover_url == "/assets/b.jpg"
+    assert document.recipe_choices[1].metadata[:4] == [
+        ("作者", "Chef"),
+        ("耗时", "30 分钟"),
+        ("热量", "520 大卡"),
+        ("难度", "★★★"),
+    ]
+    assert document.recipe_choices[1].matched == ["标题", "原料"]
 
 
 def test_document_text_and_lossless_splitting() -> None:

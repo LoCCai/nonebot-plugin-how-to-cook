@@ -36,6 +36,16 @@ _TIP_RESOURCES = {
 }
 
 
+async def fetch_recipe_document(
+    client: HowToCookClient,
+    identifier: str,
+    *,
+    image_mode: str,
+) -> Document:
+    result = await client.recipe(identifier, image_mode=image_mode)
+    return recipe_document(result.data, asset_base_url=client.origin)
+
+
 async def execute_command(
     client: HowToCookClient,
     command: ParsedCommand,
@@ -59,11 +69,17 @@ async def execute_command(
             raise CommandError(f"每页最多显示 {config.how_to_cook_max_page_size} 条")
         params.update(q=command.query, page_size=page_size, image_mode=image_mode)
         result = await client.recipes(**params)
-        return recipe_list_document(result.data, result.meta, asset_base_url=asset_base)
+        document = recipe_list_document(result.data, result.meta, asset_base_url=asset_base)
+        if len(document.recipe_choices) == 1:
+            return await fetch_recipe_document(
+                client,
+                document.recipe_choices[0].identifier,
+                image_mode=image_mode,
+            )
+        return document
     if command.action == "recipe":
         assert command.identifier is not None
-        result = await client.recipe(command.identifier, image_mode=image_mode)
-        return recipe_document(result.data, asset_base_url=asset_base)
+        return await fetch_recipe_document(client, command.identifier, image_mode=image_mode)
     if command.action in _RECIPE_RESOURCES:
         assert command.identifier is not None
         resource, title = _RECIPE_RESOURCES[command.action]

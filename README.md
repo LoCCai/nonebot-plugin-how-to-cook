@@ -2,17 +2,19 @@
 
 面向 [HowToCook API](https://github.com/LoCCai/HowToCook-API) 的完整 NoneBot2 客户端。它不只做菜名搜索，还覆盖菜谱详情、结构化原料/工具/步骤、原始段落、备注、图片、Markdown、HTML、原文、烹饪技巧与健康检查。
 
-插件默认使用设计过的 HTML 长图卡片，也可以全局配置或按命令切换为合并消息、单消息、组合消息。长图超过设定大小或高度后会自动转成群文件。
+插件默认使用设计过的 HTML 长图卡片，也可以全局配置或按命令切换为合并消息、单消息、组合消息。搜索只有一个结果时直接展示完整菜谱；存在多个结果时，用户回复卡片序号即可继续。长图超过设定大小或高度后会自动转成群文件。
 
 ## 卡片预览
 
-| 白天主题 | 夜间主题 |
+| 搜索选择列表（白天） | 完整菜谱详情（夜间） |
 | --- | --- |
-| <img src="docs/preview-light.webp" alt="HowToCook 白天菜谱卡" width="420"> | <img src="docs/preview-dark.webp" alt="HowToCook 夜间菜谱卡" width="420"> |
+| <img src="docs/preview-light.webp" alt="HowToCook 白天搜索选择卡" width="420"> | <img src="docs/preview-dark.webp" alt="HowToCook 夜间完整菜谱卡" width="420"> |
 
 ## 功能
 
 - 模糊搜索：中文标题、拼音全拼、拼音首字母、原料与正文
+- 智能选择：单个结果直达详情；多个结果使用 waiter 等待发起者回复序号
+- 搜索卡片：每项左侧成品图，右侧展示标题、作者、耗时、热量、难度、分类与烹饪方式
 - 完整筛选：分类、难度、最高难度、原料、排序、分页、字段和图片模式
 - 完整菜谱：元信息、原料、工具、步骤、段落、备注、图片、Markdown、HTML 与原文
 - 烹饪技巧：列表、搜索、分组、详情、元信息、Markdown、HTML 与原文
@@ -28,7 +30,7 @@
 pip install git+https://github.com/LoCCai/nonebot-plugin-how-to-cook.git
 ```
 
-使用 `nb-cli` 或 NoneBot 配置加载 `nonebot_plugin_how_to_cook`。插件依赖 `nonebot-plugin-htmlrender` 0.7.x，并支持 OneBot V11。
+使用 `nb-cli` 或 NoneBot 配置加载 `nonebot_plugin_how_to_cook`。插件依赖 `nonebot-plugin-htmlrender` 0.7.x 与 `nonebot-plugin-waiter` 0.8.x，并支持 OneBot V11。
 
 HowToCook API 需要单独部署。API 默认示例地址为 `http://127.0.0.1:3000/api`，插件不包含菜谱内容，也不会在服务端抓取外部网页。
 
@@ -44,6 +46,9 @@ HowToCook API 需要单独部署。API 默认示例地址为 `http://127.0.0.1:3
 做饭 搜索 红烧肉
 做饭 hsr
 做饭 搜索 土豆 --原料 牛肉 --最高难度 3 --排序 difficulty --页 1
+
+# 若返回多个结果，直接回复 1、2、3……；发送“取消”可结束
+# 若只有一个结果，插件会直接展示完整菜谱
 
 做饭 详情 0eb9f4426a
 做饭 元信息 0eb9f4426a
@@ -69,6 +74,9 @@ HowToCook API 需要单独部署。API 默认示例地址为 `http://127.0.0.1:3
 ```
 
 稳定 ID 与 URL 编码后的仓库相对路径都可以作为菜谱/技巧标识。
+日常查询无需复制 ID；`详情 <ID>` 主要用于收藏后的直达调用和完整 API 子资源访问。
+
+在 QIQI-Bot 中，序号提示与超时/取消提示会复用 `src.utils.message_fx.send_with_auto_recall` 自动撤回；独立部署时会安全降级为普通提示消息。
 
 ### 单次覆盖输出与主题
 
@@ -108,6 +116,8 @@ HowToCook API 需要单独部署。API 默认示例地址为 `http://127.0.0.1:3
 | `HOW_TO_COOK_IMAGE_MODE` | `server` | `relative` / `server` / `proxy` |
 | `HOW_TO_COOK_DEFAULT_PAGE_SIZE` | `8` | 搜索与技巧默认每页数量 |
 | `HOW_TO_COOK_MAX_PAGE_SIZE` | `20` | Bot 单次展示上限 |
+| `HOW_TO_COOK_SELECTION_TIMEOUT_SECONDS` | `120` | 多结果搜索等待发起者回复序号的秒数 |
+| `HOW_TO_COOK_REMINDER_RECALL_SECONDS` | `15` | QIQI 提醒消息自动撤回延迟秒数 |
 | `HOW_TO_COOK_RESPONSE_MODE` | `render` | 全局输出模式 |
 | `HOW_TO_COOK_RENDER_FALLBACK_MODE` | `forward` | HTML 渲染失败后的文本模式 |
 | `HOW_TO_COOK_MESSAGE_CHUNK_SIZE` | `3200` | 组合模式文本分段长度 |

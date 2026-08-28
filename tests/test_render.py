@@ -6,7 +6,7 @@ from pathlib import Path
 from types import ModuleType
 
 from nonebot_plugin_how_to_cook.config import Config
-from nonebot_plugin_how_to_cook.content import Document, Section
+from nonebot_plugin_how_to_cook.content import Document, Section, recipe_list_document
 from nonebot_plugin_how_to_cook.render import CardRenderer, png_dimensions, sanitize_html_fragment
 
 
@@ -72,6 +72,48 @@ def test_card_builds_markdown_with_dark_theme_and_cover() -> None:
     assert "<h2>步骤</h2>" in html
     assert "http://cook.test/" in html
     assert "/assets/dish.jpg" in html
+    assert "QIQI-Bot" in html
+    assert "作者 LoCCai" in html
+    assert "数据驱动" in html
+    assert "How To Cook" in html
+    assert "渲染时间" in html
+    assert "2026-08-28 23:30" in html
+
+
+def test_search_card_uses_left_images_and_right_metadata() -> None:
+    document = recipe_list_document(
+        [
+            {
+                "id": "one",
+                "title": "番茄炒蛋",
+                "cover": {"url": "/assets/tomato.jpg", "alt": "成品"},
+                "author": "LoCCai",
+                "time_estimate": {"text": "15 分钟"},
+                "calories": {"value": 320, "unit": "大卡"},
+                "difficulty_display": "★★",
+                "matched": ["title"],
+            },
+            {"id": "two", "title": "没有图片的菜谱"},
+        ],
+        {"total": 2, "page": 1, "pages": 1, "q": "番茄"},
+        asset_base_url="http://cook.test",
+    )
+    html, _theme = CardRenderer(Config()).build_html(
+        document,
+        theme="light",
+        now=datetime(2026, 8, 28, 15, 30, tzinfo=timezone.utc),
+    )
+
+    assert html.count('class="recipe-item"') == 2
+    assert 'class="recipe-thumb"' in html
+    assert 'class="recipe-copy"' in html
+    assert "/assets/tomato.jpg" in html
+    assert "番茄炒蛋" in html
+    assert "LoCCai" in html
+    assert "15 分钟" in html
+    assert "320 大卡" in html
+    assert "★★" in html
+    assert "发送下方序号即可查看完整菜谱" in html
 
 
 def test_png_dimensions() -> None:
