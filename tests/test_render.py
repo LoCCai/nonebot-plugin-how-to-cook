@@ -1,9 +1,43 @@
+import importlib
 import struct
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
+from types import ModuleType
 
 from nonebot_plugin_how_to_cook.config import Config
 from nonebot_plugin_how_to_cook.content import Document, Section
 from nonebot_plugin_how_to_cook.render import CardRenderer, png_dimensions, sanitize_html_fragment
+
+
+def test_card_renderer_supports_vendored_package_identity(monkeypatch) -> None:
+    package_root = Path(__file__).resolve().parents[1] / "nonebot_plugin_how_to_cook"
+    vendored_name = "src.plugins.nonebot_plugin_how_to_cook"
+
+    src_package = ModuleType("src")
+    src_package.__path__ = []  # type: ignore[attr-defined]
+    plugins_package = ModuleType("src.plugins")
+    plugins_package.__path__ = []  # type: ignore[attr-defined]
+    vendored_package = ModuleType(vendored_name)
+    vendored_package.__path__ = [str(package_root)]  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "src", src_package)
+    monkeypatch.setitem(sys.modules, "src.plugins", plugins_package)
+    monkeypatch.setitem(sys.modules, vendored_name, vendored_package)
+
+    vendored_render = importlib.import_module(f"{vendored_name}.render")
+    vendored_config = importlib.import_module(f"{vendored_name}.config")
+    original_import_module = importlib.import_module
+
+    def reject_top_level_package(name: str, package: str | None = None):
+        if name == "nonebot_plugin_how_to_cook":
+            raise ModuleNotFoundError(name)
+        return original_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", reject_top_level_package)
+    renderer = vendored_render.CardRenderer(vendored_config.Config())
+
+    assert renderer.environment.get_template("card.html.jinja2")
+    assert renderer.environment.loader.searchpath == [str(package_root / "templates")]
 
 
 def test_html_sanitizer_removes_active_content() -> None:

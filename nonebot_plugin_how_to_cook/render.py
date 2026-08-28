@@ -6,7 +6,7 @@ import struct
 from datetime import datetime
 from html import escape
 from html.parser import HTMLParser
-from importlib.resources import files
+from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markdown_it import MarkdownIt
@@ -137,7 +137,7 @@ def _image_data_uri(data: bytes) -> str:
 class CardRenderer:
     def __init__(self, config: Config) -> None:
         self.config = config
-        template_root = files("nonebot_plugin_how_to_cook").joinpath("templates")
+        template_root = Path(__file__).resolve().parent / "templates"
         self.environment = Environment(
             loader=FileSystemLoader(str(template_root)),
             autoescape=select_autoescape(("html", "xml")),
