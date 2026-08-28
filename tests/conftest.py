@@ -1,3 +1,3 @@
 import nonebot
 
-nonebot.init()
+nonebot.init(driver="~none")
