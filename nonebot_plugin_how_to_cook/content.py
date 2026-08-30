@@ -4,6 +4,7 @@ import json
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from html import unescape
 from typing import Any, Literal
 
@@ -56,6 +57,14 @@ class ChartGroup:
 
 
 @dataclass(slots=True)
+class ShoppingListItem:
+    name: str
+    amount: str
+    aliases: list[str] = field(default_factory=list)
+    recipes: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class Document:
     title: str
     kicker: str = "HOW TO COOK"
@@ -71,10 +80,20 @@ class Document:
     asset_base_url: str | None = None
     footer: str = "内容来自 HowToCook 社区，仅供烹饪参考"
     filename_hint: str = "how-to-cook"
-    layout: Literal["article", "recipe_list", "menu", "stats"] = "article"
+    layout: Literal[
+        "article",
+        "recipe_list",
+        "menu",
+        "week_plan",
+        "shopping_list",
+        "changelog",
+        "stats",
+    ] = "article"
     recipe_choices: list[RecipeListItem] = field(default_factory=list)
     choice_groups: list[ChoiceGroup] = field(default_factory=list)
     charts: list[ChartGroup] = field(default_factory=list)
+    shopping_items: list[ShoppingListItem] = field(default_factory=list)
+    shopping_recipe_ids: list[str] = field(default_factory=list)
 
     def summary_text(self) -> str:
         lines = [f"🍳 {self.title}"]
@@ -175,6 +194,9 @@ def _recipe_stats(data: dict[str, Any]) -> list[tuple[str, str]]:
     author = _author_name(data.get("author"))
     if author != "未知":
         stats.append(("作者", author))
+    diet_labels = _diet_labels(data.get("diet_tags"))
+    if diet_labels:
+        stats.append(("饮食标签", " / ".join(diet_labels)))
     return stats
 
 
@@ -205,7 +227,7 @@ def _search_metadata(data: dict[str, Any]) -> list[tuple[str, str]]:
     if updated_at != "未标注":
         updated_at = updated_at[:10]
 
-    return [
+    metadata = [
         ("作者", _author_name(data.get("author"))),
         ("耗时", duration),
         ("热量", calorie_text),
@@ -214,6 +236,29 @@ def _search_metadata(data: dict[str, Any]) -> list[tuple[str, str]]:
         ("方式", method_text),
         ("更新", updated_at),
     ]
+    diet_labels = _diet_labels(data.get("diet_tags"))
+    if diet_labels:
+        metadata.append(("标签", " / ".join(diet_labels)))
+    return metadata
+
+
+_DIET_TAG_LABELS = {
+    "vegetarian": "素食",
+    "spicy": "含辣",
+    "seafood": "水产",
+    "peanut": "花生",
+    "egg": "蛋类",
+    "dairy": "乳制品",
+    "gluten": "麸质",
+}
+
+
+def _diet_labels(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [tag for tag in re.split(r"[,，、\s]+", value) if tag]
+    if not isinstance(value, list):
+        return []
+    return [_DIET_TAG_LABELS.get(str(tag), str(tag)) for tag in value]
 
 
 _MATCHED_LABELS = {
@@ -300,7 +345,8 @@ def _ingredient_lines(items: Any) -> str:
             lines.append(f"• {_text(item)}")
             continue
         raw = item.get("raw")
-        if raw:
+        scaled_state = item.get("scaled") if "scaled" in item else None
+        if raw and scaled_state is None:
             lines.append(f"• {raw}")
             continue
         name = _text(item.get("name"))
@@ -308,6 +354,13 @@ def _ingredient_lines(items: Any) -> str:
         note = _text(item.get("note"), "")
         optional = "（可选）" if item.get("optional") else ""
         suffix = " ".join(part for part in (quantity, note) if part)
+        original = _text(item.get("quantity_original"), "")
+        if scaled_state is True and original and original != quantity:
+            suffix += f"（原用量 {original}）"
+        elif scaled_state is False:
+            suffix += "（按原文保留，无法自动换算）"
+        if not suffix and raw:
+            suffix = str(raw)
         lines.append(f"• {name}{optional}{f'：{suffix}' if suffix else ''}")
     return "\n".join(lines) or "暂无结构化原料信息"
 
@@ -418,6 +471,12 @@ def recipe_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str
     pages = int(meta.get("pages") or 1)
     query = _text(meta.get("q"), "全部菜谱")
     description = f"“{query}”共找到 {total} 道菜谱；当前第 {page}/{pages} 页。"
+    included = _diet_labels(meta.get("tag"))
+    excluded = _diet_labels(meta.get("exclude_tags"))
+    if included:
+        description += f" 仅看：{'、'.join(included)}。"
+    if excluded:
+        description += f" 已避开：{'、'.join(excluded)}。"
     if not sections:
         sections.append(Section("没有结果", "换个菜名、拼音或原料再试试。"))
     return Document(
@@ -449,10 +508,14 @@ def random_recipes_document(
             choices.append(choice)
     total_available = int(meta.get("total_available") or 0)
     seed = _text(meta.get("seed"), "随机")
+    description = f"从 {total_available} 道候选菜谱中，为你抽到了 {len(choices)} 道。"
+    excluded = _diet_labels(meta.get("exclude_tags"))
+    if excluded:
+        description += f" 已避开：{'、'.join(excluded)}。"
     return Document(
         title="今天吃什么？",
         kicker="HOW TO COOK · RANDOM PICK",
-        description=f"从 {total_available} 道候选菜谱中，为你抽到了 {len(choices)} 道。",
+        description=description,
         stats=[("推荐", str(len(choices))), ("候选池", str(total_available)), ("种子", seed)],
         sections=_choice_sections(choices)
         or [Section("没有结果", "当前筛选条件下没有可推荐的菜谱。")],
@@ -630,6 +693,10 @@ def menu_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Do
     description = "一荤一素一汤已经替你搭好，也可以调整每类数量和最高难度。"
     if unfilled:
         description += f" 候选池不足：{'、'.join(str(value) for value in unfilled)}。"
+    excluded = _diet_labels(meta.get("exclude_tags"))
+    if excluded:
+        description += f" 已避开：{'、'.join(excluded)}。"
+    shopping_ids = [choice.identifier for choice in choices]
     max_difficulty = meta.get("max_difficulty")
     stats = [("共计", f"{len(choices)} 道"), ("种子", _text(meta.get("seed"), "随机"))]
     if max_difficulty is not None:
@@ -645,6 +712,168 @@ def menu_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Do
         layout="menu",
         recipe_choices=choices,
         choice_groups=groups,
+        shopping_recipe_ids=shopping_ids,
+    )
+
+
+def week_plan_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    raw_days = payload.get("days") if isinstance(payload.get("days"), list) else []
+    definitions = [
+        ("meat", "荤菜", "🥩"),
+        ("vegetable", "素菜", "🥬"),
+        ("soup", "汤粥", "🥣"),
+    ]
+    choices: list[RecipeListItem] = []
+    groups: list[ChoiceGroup] = []
+    sections: list[Section] = []
+    for fallback_day, raw_day in enumerate(raw_days, 1):
+        if not isinstance(raw_day, dict):
+            continue
+        day_number = int(raw_day.get("day") or fallback_day)
+        day_items: list[RecipeListItem] = []
+        text_lines: list[str] = []
+        for key, badge, icon in definitions:
+            raw_items = raw_day.get(key) if isinstance(raw_day.get(key), list) else []
+            titles: list[str] = []
+            for item in raw_items:
+                if not isinstance(item, dict):
+                    continue
+                choice = _recipe_choice(item, len(choices) + 1, badge=badge)
+                if choice:
+                    choices.append(choice)
+                    day_items.append(choice)
+                    titles.append(f"{choice.number}. {choice.title}")
+            text_lines.append(f"{icon} {badge}：{'、'.join(titles) if titles else '未安排'}")
+        groups.append(
+            ChoiceGroup(
+                key=f"day-{day_number}",
+                title=f"第 {day_number} 天",
+                icon=f"{day_number:02d}",
+                items=day_items,
+            )
+        )
+        sections.append(Section(f"第 {day_number} 天", "\n".join(text_lines)))
+
+    repeats = bool(meta.get("repeats"))
+    description = "按天搭配荤菜、素菜和汤粥，计划内菜谱默认不重复。"
+    if repeats:
+        description = "筛选后的候选池已用尽，计划中包含重复菜谱。"
+    excluded = _diet_labels(meta.get("exclude_tags"))
+    if excluded:
+        description += f" 已避开：{'、'.join(excluded)}。"
+    shopping_ids = [choice.identifier for choice in choices]
+    if len(shopping_ids) > 50:
+        description += " 本计划超过购物清单单次 50 道上限，请减少天数或每日槽位后再汇总。"
+    stats = [
+        ("计划", f"{len(groups)} 天"),
+        ("菜谱", f"{len(choices)} 道"),
+        ("种子", _text(meta.get("seed"), "随机")),
+    ]
+    if meta.get("max_difficulty") is not None:
+        stats.append(("最高难度", f"{meta['max_difficulty']} 星"))
+    return Document(
+        title="七七一周吃什么",
+        kicker="HOW TO COOK · WEEKLY PLAN",
+        description=description,
+        stats=stats,
+        sections=sections,
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-一周计划",
+        layout="week_plan",
+        recipe_choices=choices,
+        choice_groups=groups,
+        shopping_recipe_ids=shopping_ids if len(shopping_ids) <= 50 else [],
+    )
+
+
+def _format_number(value: Any) -> str:
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return _text(value, "0")
+
+
+def shopping_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    raw_items = payload.get("items") if isinstance(payload.get("items"), list) else []
+    resolved = payload.get("recipes") if isinstance(payload.get("recipes"), list) else []
+    not_found = payload.get("not_found") if isinstance(payload.get("not_found"), list) else []
+    items: list[ShoppingListItem] = []
+    text_lines: list[str] = []
+    section_labels = {"必须配料", "进阶配料", "可选配料", "必须原料", "可选原料"}
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            continue
+        name = _text(raw_item.get("name"), "未命名原料")
+        amount_parts: list[str] = []
+        amounts = raw_item.get("amounts") if isinstance(raw_item.get("amounts"), list) else []
+        for amount in amounts:
+            if not isinstance(amount, dict):
+                continue
+            unit = _text(amount.get("unit"), "")
+            amount_parts.append(
+                f"{_format_number(amount.get('value'))}{f' {unit}' if unit else ''}"
+            )
+        unspecified = (
+            raw_item.get("unspecified") if isinstance(raw_item.get("unspecified"), list) else []
+        )
+        if name in section_labels and not amounts and not unspecified:
+            continue
+        amount_parts.extend(str(value) for value in unspecified if value)
+        amount_text = " / ".join(amount_parts) or "按需准备"
+        display_names = (
+            raw_item.get("display_names") if isinstance(raw_item.get("display_names"), list) else []
+        )
+        aliases = [str(value) for value in display_names if value and str(value) != name]
+        recipes = (
+            [str(value) for value in raw_item.get("recipes", []) if value]
+            if isinstance(raw_item.get("recipes"), list)
+            else []
+        )
+        items.append(
+            ShoppingListItem(
+                name=name,
+                amount=amount_text,
+                aliases=aliases,
+                recipes=recipes,
+            )
+        )
+        source = f"（用于 {'、'.join(recipes)}）" if recipes else ""
+        text_lines.append(f"□ {name}：{amount_text}{source}")
+
+    recipe_titles = [
+        _text(item.get("title"))
+        for item in resolved
+        if isinstance(item, dict) and item.get("title")
+    ]
+    sections = [
+        Section("包含菜谱", "、".join(recipe_titles) or "没有成功解析的菜谱"),
+        Section("采购明细", "\n".join(text_lines) or "没有可汇总的原料"),
+    ]
+    if not_found:
+        sections.append(Section("未找到", "、".join(str(value) for value in not_found)))
+    servings = meta.get("servings")
+    description = f"已合并 {len(recipe_titles)} 道菜的同名原料与同单位用量。"
+    if servings is not None:
+        description += f" 数值用量按 {servings} 人份线性换算。"
+    description += " “适量”等无法计算的写法会原样保留。"
+    stats = [
+        ("菜谱", str(len(recipe_titles))),
+        ("原料", str(len(items))),
+        ("未找到", str(len(not_found))),
+    ]
+    if servings is not None:
+        stats.insert(2, ("份数", f"{servings} 人"))
+    return Document(
+        title="七七采购清单",
+        kicker="HOW TO COOK · SHOPPING LIST",
+        description=description,
+        stats=stats,
+        sections=sections,
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-购物清单",
+        layout="shopping_list",
+        shopping_items=items,
     )
 
 
@@ -790,6 +1019,97 @@ def content_check_document(data: Any, *, asset_base_url: str) -> Document:
         ],
         asset_base_url=asset_base_url,
         filename_hint="HowToCook-内容检查",
+    )
+
+
+def content_changelog_document(
+    data: Any,
+    meta: dict[str, Any],
+    *,
+    asset_base_url: str,
+    limit: int,
+) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    definitions = [
+        ("added", "新增菜谱", "NEW", "新增", "created_at"),
+        ("updated", "近期更新", "UP", "更新", "updated_at"),
+    ]
+    choices: list[RecipeListItem] = []
+    groups: list[ChoiceGroup] = []
+    sections: list[Section] = []
+    candidates: list[tuple[float, int]] = []
+    for key, _title, _icon, _badge, date_key in definitions:
+        raw_items = payload.get(key) if isinstance(payload.get(key), list) else []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            value = str(item.get(date_key) or "")
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                timestamp = parsed.timestamp()
+            except ValueError:
+                timestamp = 0
+            candidates.append((timestamp, id(item)))
+    selected_ids = {
+        identity
+        for _timestamp, identity in sorted(
+            candidates,
+            key=lambda candidate: candidate[0],
+            reverse=True,
+        )[:limit]
+    }
+    for key, title, icon, badge, date_key in definitions:
+        raw_items = payload.get(key) if isinstance(payload.get(key), list) else []
+        group_items: list[RecipeListItem] = []
+        for item in raw_items:
+            if not isinstance(item, dict) or id(item) not in selected_ids:
+                continue
+            changed_at = _text(item.get(date_key), "未知时间")[:10]
+            choice = _recipe_choice(
+                item,
+                len(choices) + 1,
+                badge=badge,
+                extra_metadata=[("日期", changed_at)],
+            )
+            if choice:
+                choices.append(choice)
+                group_items.append(choice)
+        groups.append(ChoiceGroup(key=key, title=title, icon=icon, items=group_items))
+        sections.append(
+            Section(
+                title,
+                "\n".join(
+                    f"{choice.number}. {choice.title} · {choice.metadata[0][1]}"
+                    for choice in group_items
+                )
+                or "这个时间段内没有记录",
+            )
+        )
+    added_total = int(meta.get("added") or 0)
+    updated_total = int(meta.get("updated") or 0)
+    days = int(meta.get("days") or 30)
+    description = (
+        f"回看最近 {days} 天的内容变化，共新增 {added_total} 道、更新 {updated_total} 道；"
+        f"本卡展示最近 {len(choices)} 道。"
+    )
+    return Document(
+        title="HowToCook 内容更新",
+        kicker="HOW TO COOK · CHANGELOG",
+        description=description,
+        stats=[
+            ("窗口", f"{days} 天"),
+            ("新增", str(added_total)),
+            ("更新", str(updated_total)),
+            ("展示", str(len(choices))),
+        ],
+        sections=sections,
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-更新日志",
+        layout="changelog",
+        recipe_choices=choices,
+        choice_groups=groups,
     )
 
 
@@ -988,6 +1308,17 @@ def recipe_resource_document(
         )
     if resource == "ingredients":
         sections = [Section("完整原料与用量", _ingredient_lines(data))]
+        if meta.get("servings") is not None:
+            sections.append(
+                Section(
+                    "份数换算说明",
+                    (
+                        f"目标 {meta['servings']} 人份；原菜谱按 {meta.get('base_servings', 2)} "
+                        f"人份计算，系数 {_text(meta.get('factor'))}。数值型用量按比例换算，"
+                        "“适量”与中文数量词等无法可靠计算的内容保留原文。"
+                    ),
+                )
+            )
     elif resource == "tools":
         sections = [Section("所需工具", _tool_lines(data))]
     elif resource == "steps":
@@ -1041,10 +1372,13 @@ def recipe_resource_document(
             result,
             asset_base_url=asset_base_url,
         )
+    stats = [("条目", str(meta.get("total") or 0)), ("菜谱 ID", _text(meta.get("id")))]
+    if resource == "ingredients" and meta.get("servings") is not None:
+        stats.insert(1, ("目标份数", f"{meta['servings']} 人"))
     return Document(
         title=f"{title} · {sections[0].title}",
         kicker="HOW TO COOK · STRUCTURED DATA",
-        stats=[("条目", str(meta.get("total") or 0)), ("菜谱 ID", _text(meta.get("id")))],
+        stats=stats,
         sections=sections,
         asset_base_url=asset_base_url,
         filename_hint=f"HowToCook-{title}-{resource}",
@@ -1088,7 +1422,10 @@ def help_document(*, asset_base_url: str) -> Document:
             "\n".join(
                 [
                     "• 做饭 随机 [数量] [--分类 soup] [--难度 2]",
-                    "• 做饭 配餐 [--荤 1 --素 1 --汤 1 --最高难度 3]",
+                    "• 做饭 配餐 [--荤 1 --素 1 --汤 1 --最高难度 3 --忌口 海鲜,花生]",
+                    "• 做饭 周计划 [天数] [--最高难度 3 --忌口 辣,海鲜]",
+                    "• 配餐/周计划卡片后可回复“购物清单”或“购物清单 4”",
+                    "• 做饭 购物清单 宫保鸡丁,炒滑蛋 [--份数 4]",
                     "• 做饭 食材 鸡蛋 西红柿 [--严格] [--数量 8]",
                     "• 做饭 相关 <菜谱 ID或路径> [--数量 5]",
                     "• 一个候选会直接打开详情；多个候选回复卡片序号选择",
@@ -1102,6 +1439,7 @@ def help_document(*, asset_base_url: str) -> Document:
                     "• 做饭 搜索 红烧肉",
                     "• 做饭 hsr（支持拼音全拼/首字母）",
                     "• 做饭 搜索 土豆 --原料 牛肉 --最高难度 3 --页 1",
+                    "• 做饭 搜索 --标签 素食 --忌口 辣,麸质",
                     "• 仅一个结果会直接展示详情；多个结果发送卡片序号选择",
                     "• 做饭 全局搜索 备菜（同时搜索菜谱与厨房技巧）",
                     "• 做饭 分类",
@@ -1116,7 +1454,8 @@ def help_document(*, asset_base_url: str) -> Document:
                     "• 通常直接在搜索结果后回复序号，无需手动复制 ID",
                     "• 进阶直达：做饭 详情 <ID或路径>",
                     "• 做饭 原料/工具/步骤/段落/备注/图片 <ID>",
-                    "• 做饭 元信息/Markdown/HTML/原文 <ID>",
+                    "• 做饭 原料 <ID> --份数 4（按人数换算数值用量）",
+                    "• 做饭 元信息/Markdown/HTML/原文/JSONLD <ID>",
                 ]
             ),
         ),
@@ -1134,10 +1473,10 @@ def help_document(*, asset_base_url: str) -> Document:
             "版本、输出与高级入口",
             "\n".join(
                 [
-                    "• 做饭 内容版本 / 做饭 内容检查（只读，不执行更新）",
+                    "• 做饭 内容版本 / 内容检查 / 更新日志 [天数]",
                     "• 任意命令追加 --模式 合并|单条|组合|渲染",
                     "• 渲染命令可追加 --主题 自动|白天|夜间",
-                    "• 做饭 接口 stats（受控只读 GET 入口）",
+                    "• 做饭 接口 plan/week seed=qiqi（受控只读 GET 入口）",
                     "• 做饭 健康",
                 ]
             ),
@@ -1146,8 +1485,8 @@ def help_document(*, asset_base_url: str) -> Document:
     return Document(
         title="今天吃什么？",
         kicker="HOW TO COOK · COMMAND GUIDE",
-        description="随机推荐、智能配餐、按手头原料找菜，并查看完整做法与厨房技巧。",
-        stats=[("新版", "推荐 / 配餐 / 统计"), ("模式", "长图 / 合并 / 单条 / 组合")],
+        description="从一餐到一周计划，自动汇总采购清单，并查看完整做法与厨房技巧。",
+        stats=[("新版", "周计划 / 购物清单"), ("模式", "长图 / 合并 / 单条 / 组合")],
         sections=sections,
         asset_base_url=asset_base_url,
         filename_hint="HowToCook-帮助",

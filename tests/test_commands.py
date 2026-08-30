@@ -79,6 +79,42 @@ def test_random_menu_and_related_commands() -> None:
     assert related.params == {"limit": 6}
 
 
+def test_week_plan_shopping_list_and_diet_filters() -> None:
+    week = parse_command("周计划 5 --荤 1 --素 1 --汤 0 --最高难度 3 --忌口 海鲜,花生 --种子 qiqi")
+    assert week.action == "week_plan"
+    assert week.params == {
+        "meat": 1,
+        "vegetable": 1,
+        "soup": 0,
+        "max_difficulty": 3,
+        "exclude_tags": "seafood,peanut",
+        "seed": "qiqi",
+        "days": 5,
+    }
+
+    shopping = parse_command("购物清单 宫保鸡丁,炒滑蛋 --份数 4")
+    assert shopping.action == "shopping_list"
+    assert shopping.params == {"servings": 4, "recipes": ["宫保鸡丁", "炒滑蛋"]}
+
+    filtered = parse_command("搜索 --标签 素食 --忌口 辣,麸质")
+    assert filtered.params == {"tag": "vegetarian", "exclude_tags": "spicy,gluten"}
+
+
+def test_servings_jsonld_and_changelog_commands() -> None:
+    ingredients = parse_command("原料 abc123 --份数 6")
+    assert ingredients.action == "ingredients"
+    assert ingredients.identifier == "abc123"
+    assert ingredients.params == {"servings": 6}
+
+    jsonld = parse_command("JSONLD abc123")
+    assert jsonld.action == "jsonld"
+    assert jsonld.identifier == "abc123"
+
+    changelog = parse_command("更新日志 60 --数量 12")
+    assert changelog.action == "content_changelog"
+    assert changelog.params == {"limit": 12, "days": 60}
+
+
 def test_ingredient_discovery_and_aggregate_search() -> None:
     command = parse_command("食材 鸡蛋，番茄 土豆 --严格 --数量 7")
     assert command.action == "by_ingredients"
@@ -128,6 +164,13 @@ def test_generic_api_parameters() -> None:
         "食材 鸡蛋 --匹配 不知道",
         "全局搜索",
         "统计 extra",
+        "周计划 15",
+        "周计划 --荤 0 --素 0 --汤 0",
+        "周计划 --忌口 不认识",
+        "购物清单",
+        "购物清单 宫保鸡丁 --份数 0",
+        "原料 abc --份数 101",
+        "更新日志 366",
     ],
 )
 def test_invalid_commands(text: str) -> None:

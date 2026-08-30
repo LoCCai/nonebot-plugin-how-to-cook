@@ -19,6 +19,7 @@ _RECIPE_RESOURCES = {
     "html",
     "raw",
     "related",
+    "jsonld",
 }
 _TIP_RESOURCES = {"meta", "markdown", "html", "raw"}
 _ROOT_GET_ENDPOINTS = {
@@ -27,10 +28,12 @@ _ROOT_GET_ENDPOINTS = {
     "recipes",
     "tips",
     "menu",
+    "plan/week",
     "search",
     "stats",
     "content",
     "content/check",
+    "content/changelog",
     "docs",
     "openapi.json",
 }
@@ -152,11 +155,12 @@ class HowToCookClient:
             timeout=self.timeout,
             follow_redirects=True,
             trust_env=trust_env,
-            headers={"User-Agent": "nonebot-plugin-how-to-cook/0.2.0"},
+            headers={"User-Agent": "nonebot-plugin-how-to-cook/0.3.0"},
         )
 
-    async def _get_response(
+    async def _send_response(
         self,
+        method: str,
         url: str,
         *,
         params: dict[str, Any] | None = None,
@@ -166,7 +170,12 @@ class HowToCookClient:
         for trust_env in self._attempts():
             try:
                 async with self._client(trust_env) as client:
-                    return await client.get(url, params=params, headers={"Accept": accept})
+                    return await client.request(
+                        method,
+                        url,
+                        params=params,
+                        headers={"Accept": accept},
+                    )
             except httpx.TransportError as exc:
                 last_error = exc
         assert last_error is not None
@@ -174,6 +183,15 @@ class HowToCookClient:
             "NETWORK_ERROR",
             f"无法连接 HowToCook API：{type(last_error).__name__}",
         ) from last_error
+
+    async def _get_response(
+        self,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        accept: str = "application/json, text/plain;q=0.9, */*;q=0.5",
+    ) -> httpx.Response:
+        return await self._send_response("GET", url, params=params, accept=accept)
 
     @staticmethod
     def _raise_for_error(response: httpx.Response) -> None:
@@ -229,6 +247,43 @@ class HowToCookClient:
             return APIResult(endpoint, str(response.url), response.text, {}, content_type)
         return APIResult(endpoint, str(response.url), response.content, {}, content_type)
 
+    async def post(self, endpoint: str, *, params: dict[str, Any] | None = None) -> APIResult:
+        """POST to one explicitly selected, non-mutating computation endpoint."""
+
+        if endpoint != "shopping-list":
+            raise ValueError("只允许调用无状态的 shopping-list POST；内容更新 POST 不开放")
+        url = self.endpoint_url(endpoint)
+        response = await self._send_response("POST", url, params=params)
+        self._raise_for_error(response)
+        content_type = response.headers.get("content-type", "application/octet-stream").split(
+            ";", 1
+        )[0]
+        if content_type != "application/json" and not content_type.endswith("+json"):
+            raise HowToCookAPIError(
+                "INVALID_RESPONSE",
+                "API 返回了非 JSON 购物清单",
+                status_code=response.status_code,
+            )
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise HowToCookAPIError(
+                "INVALID_RESPONSE",
+                "API 返回了无法解析的 JSON",
+                status_code=response.status_code,
+            ) from exc
+        if isinstance(payload, dict) and isinstance(payload.get("error"), dict):
+            error = payload["error"]
+            raise HowToCookAPIError(
+                str(error.get("code") or "API_ERROR"),
+                str(error.get("message") or "API 返回错误"),
+                status_code=response.status_code,
+            )
+        if isinstance(payload, dict) and "data" in payload:
+            meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+            return APIResult(endpoint, str(response.url), payload["data"], meta, content_type)
+        return APIResult(endpoint, str(response.url), payload, {}, content_type)
+
     async def health(self) -> APIResult:
         return await self.request("health")
 
@@ -254,6 +309,34 @@ class HowToCookClient:
     async def menu(self, **params: Any) -> APIResult:
         return await self.request("menu", params={k: v for k, v in params.items() if v is not None})
 
+    async def week_plan(self, **params: Any) -> APIResult:
+        return await self.request(
+            "plan/week",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    async def shopping_list(
+        self,
+        identifiers: list[str] | tuple[str, ...],
+        *,
+        servings: int | None = None,
+    ) -> APIResult:
+        if not identifiers:
+            raise ValueError("购物清单至少需要一道菜")
+        if len(identifiers) > 50:
+            raise ValueError("购物清单一次最多合并 50 道菜")
+        return await self.post(
+            "shopping-list",
+            params={
+                key: value
+                for key, value in {
+                    "ids": ",".join(identifiers),
+                    "servings": servings,
+                }.items()
+                if value is not None
+            },
+        )
+
     async def search_all(self, query: str, *, image_mode: str | None = None) -> APIResult:
         return await self.request(
             "search",
@@ -273,12 +356,16 @@ class HowToCookClient:
     async def content_check(self) -> APIResult:
         return await self.request("content/check")
 
+    async def content_changelog(self, *, days: int = 30) -> APIResult:
+        return await self.request("content/changelog", params={"days": days})
+
     async def recipe(
         self,
         identifier: str,
         *,
         resource: str | None = None,
         image_mode: str | None = None,
+        servings: int | None = None,
     ) -> APIResult:
         if resource is not None and resource not in _RECIPE_RESOURCES:
             raise ValueError(f"未知菜谱子资源：{resource}")
@@ -294,8 +381,14 @@ class HowToCookClient:
             "html",
             "related",
         }
-        params = {"image_mode": image_mode} if image_mode and supports_image_mode else None
-        return await self.request(endpoint, params=params)
+        params: dict[str, Any] = {}
+        if image_mode and supports_image_mode:
+            params["image_mode"] = image_mode
+        if servings is not None:
+            if resource != "ingredients":
+                raise ValueError("份数参数仅适用于菜谱原料接口")
+            params["servings"] = servings
+        return await self.request(endpoint, params=params or None)
 
     async def related_recipes(
         self,

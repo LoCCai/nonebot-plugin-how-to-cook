@@ -342,6 +342,155 @@
       .menu-items .recipe-thumb img,
       .menu-items .recipe-placeholder { min-height: 140px; }
 
+      .week-content { padding: 31px 40px 42px; }
+      .week-days { display: grid; gap: 18px; }
+      .week-day {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: var(--paper-soft);
+        box-shadow: 0 7px 18px rgba(49, 38, 27, .045);
+      }
+      .week-day-head {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 17px;
+        border-bottom: 1px solid var(--line);
+        background: var(--chip);
+      }
+      .week-day-number {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border-radius: 13px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--qiqi), var(--accent));
+        font-size: 13px;
+        font-weight: 900;
+      }
+      .week-day-title {
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 19px;
+        font-weight: 850;
+      }
+      .week-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 11px; padding: 13px; }
+      .plan-item {
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--paper);
+      }
+      .plan-thumb {
+        position: relative;
+        height: 104px;
+        overflow: hidden;
+        background: linear-gradient(145deg, var(--accent-2), var(--accent));
+      }
+      .plan-thumb img { width: 100%; height: 100%; object-fit: cover; }
+      .plan-placeholder { display: grid; height: 100%; place-items: center; color: #fff; font-size: 34px; }
+      .plan-index {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        display: grid;
+        min-width: 31px;
+        height: 31px;
+        padding: 0 7px;
+        place-items: center;
+        border: 2px solid rgba(255, 255, 255, .68);
+        border-radius: 10px;
+        color: #fff;
+        background: rgba(30, 24, 20, .72);
+        font-size: 13px;
+        font-weight: 900;
+      }
+      .plan-copy { padding: 11px 12px 12px; }
+      .plan-badge { color: var(--qiqi); font-size: 10px; font-weight: 850; letter-spacing: .08em; }
+      .plan-title {
+        min-height: 45px;
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 17px;
+        font-weight: 850;
+        line-height: 1.3;
+      }
+      .plan-meta { display: flex; flex-wrap: wrap; gap: 4px 7px; margin-top: 9px; color: var(--muted); font-size: 10px; }
+      .plan-meta span { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+
+      .shopping-content { padding: 31px 40px 42px; }
+      .shopping-note {
+        margin-bottom: 19px;
+        padding: 13px 16px;
+        border: 1px solid color-mix(in srgb, var(--qiqi) 28%, transparent);
+        border-radius: 15px;
+        color: var(--muted);
+        background: var(--qiqi-soft);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+      .shopping-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+      .shopping-item {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        gap: 11px;
+        padding: 13px 14px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--paper-soft);
+      }
+      .shopping-check {
+        width: 22px;
+        height: 22px;
+        margin-top: 2px;
+        border: 2px solid color-mix(in srgb, var(--qiqi) 48%, var(--line));
+        border-radius: 7px;
+        background: var(--paper);
+      }
+      .shopping-row-head { display: flex; gap: 9px; align-items: baseline; justify-content: space-between; }
+      .shopping-name { overflow-wrap: anywhere; font-size: 16px; font-weight: 850; }
+      .shopping-amount { flex: 0 0 auto; color: var(--accent); font-size: 14px; font-weight: 850; }
+      .shopping-alias,
+      .shopping-source { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+
+      .changelog-content { padding: 31px 40px 42px; }
+      .change-groups { display: grid; gap: 22px; }
+      .change-group {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 21px;
+        background: var(--paper-soft);
+      }
+      .change-group-title {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        padding: 13px 17px;
+        border-bottom: 1px solid var(--line);
+        background: var(--chip);
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 19px;
+        font-weight: 850;
+      }
+      .change-icon {
+        padding: 5px 8px;
+        border-radius: 9px;
+        color: #fff;
+        background: linear-gradient(135deg, var(--qiqi), var(--accent));
+        font-family: sans-serif;
+        font-size: 10px;
+        font-weight: 900;
+        letter-spacing: .06em;
+      }
+      .change-items { display: grid; gap: 11px; padding: 13px; }
+      .change-items .recipe-item { min-height: 138px; border-radius: 17px; }
+      .change-items .recipe-thumb,
+      .change-items .recipe-thumb img,
+      .change-items .recipe-placeholder { min-height: 138px; }
+
       .stats-content { display: grid; gap: 22px; padding: 35px 40px 42px; }
       .chart-card {
         padding: 22px 24px 24px;
@@ -449,6 +598,25 @@
         </div>
       </section>
     {%- endmacro %}
+    {% macro plan_card(item) -%}
+      <section class="plan-item">
+        <div class="plan-thumb">
+          <span class="plan-index">{{ item.number }}</span>
+          {% if item.cover_url %}
+            <img src="{{ item.cover_url }}" alt="{{ item.cover_alt }}" />
+          {% else %}
+            <div class="plan-placeholder">🍽️</div>
+          {% endif %}
+        </div>
+        <div class="plan-copy">
+          <div class="plan-badge">{{ item.badge }}</div>
+          <div class="plan-title">{{ item.title }}</div>
+          <div class="plan-meta">
+            {% for label, value in item.metadata[:4] %}<span>{{ label }} {{ value }}</span>{% endfor %}
+          </div>
+        </div>
+      </section>
+    {%- endmacro %}
     <main class="card">
       <header class="hero{% if document.layout != 'article' %} hero-list{% endif %}">
         <div class="hero-copy">
@@ -501,6 +669,64 @@
                   </div>
                 {% else %}
                   <div class="empty-state">本次没有安排这一类菜。</div>
+                {% endif %}
+              </section>
+            {% endfor %}
+          </div>
+        </article>
+      {% elif document.layout == 'week_plan' %}
+        <article class="week-content">
+          <div class="selection-guide">
+            <span class="guide-mark">7</span>
+            <span><strong>一周菜单已经排好</strong><br />发送菜谱序号查看完整做法；发送“购物清单”汇总整周用料，后接数字可指定人数。</span>
+          </div>
+          <div class="week-days">
+            {% for group in document.choice_groups %}
+              <section class="week-day">
+                <div class="week-day-head"><span class="week-day-number">{{ group.icon }}</span><span class="week-day-title">{{ group.title }}</span></div>
+                <div class="week-grid">
+                  {% for item in group.items %}{{ plan_card(item) }}{% endfor %}
+                </div>
+              </section>
+            {% endfor %}
+          </div>
+        </article>
+      {% elif document.layout == 'shopping_list' %}
+        <article class="shopping-content">
+          <div class="shopping-note"><strong>采购提示</strong>　同名原料已归一、同单位已合并；“适量”等不可计算用量按原文列出，过敏与忌口仍请自行复核。</div>
+          {% if document.shopping_items %}
+            <div class="shopping-grid">
+              {% for item in document.shopping_items %}
+                <section class="shopping-item">
+                  <span class="shopping-check"></span>
+                  <div>
+                    <div class="shopping-row-head"><span class="shopping-name">{{ item.name }}</span><span class="shopping-amount">{{ item.amount }}</span></div>
+                    {% if item.aliases %}<div class="shopping-alias">归并名称：{{ item.aliases | join(' / ') }}</div>{% endif %}
+                    {% if item.recipes %}<div class="shopping-source">用于：{{ item.recipes | join('、') }}</div>{% endif %}
+                  </div>
+                </section>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-state">没有可汇总的采购原料，请检查菜谱名称或 ID。</div>
+          {% endif %}
+        </article>
+      {% elif document.layout == 'changelog' %}
+        <article class="changelog-content">
+          {% if document.recipe_choices %}
+            <div class="selection-guide">
+              <span class="guide-mark">↻</span>
+              <span><strong>社区内容持续更新</strong><br />发送条目前的序号，即可直接打开该菜谱的最新完整做法。</span>
+            </div>
+          {% endif %}
+          <div class="change-groups">
+            {% for group in document.choice_groups %}
+              <section class="change-group">
+                <div class="change-group-title"><span class="change-icon">{{ group.icon }}</span>{{ group.title }}</div>
+                {% if group.items %}
+                  <div class="change-items">{% for item in group.items %}{{ choice_card(item) }}{% endfor %}</div>
+                {% else %}
+                  <div class="empty-state">这个时间段内没有记录。</div>
                 {% endif %}
               </section>
             {% endfor %}

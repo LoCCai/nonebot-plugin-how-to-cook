@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from .api import HowToCookClient
 from .commands import CommandError, ParsedCommand
 from .config import Config
@@ -8,6 +10,7 @@ from .content import (
     RecipeListItem,
     aggregate_search_document,
     categories_document,
+    content_changelog_document,
     content_check_document,
     content_info_document,
     health_document,
@@ -20,9 +23,11 @@ from .content import (
     recipe_resource_document,
     related_recipes_document,
     result_document,
+    shopping_list_document,
     stats_document,
     tip_document,
     tips_list_document,
+    week_plan_document,
 )
 
 _RECIPE_RESOURCES = {
@@ -36,6 +41,7 @@ _RECIPE_RESOURCES = {
     "markdown": ("markdown", "菜谱 Markdown"),
     "html": ("html", "菜谱 HTML"),
     "raw": ("raw", "菜谱原文"),
+    "jsonld": ("jsonld", "菜谱 JSON-LD"),
 }
 _TIP_RESOURCES = {
     "tip_meta": ("meta", "技巧元信息"),
@@ -76,6 +82,54 @@ async def fetch_selection_document(
     return await fetch_recipe_document(client, choice.identifier, image_mode=image_mode)
 
 
+async def fetch_shopping_list_document(
+    client: HowToCookClient,
+    identifiers: list[str],
+    *,
+    servings: int | None = None,
+) -> Document:
+    result = await client.shopping_list(identifiers, servings=servings)
+    return shopping_list_document(result.data, result.meta, asset_base_url=client.origin)
+
+
+_STABLE_RECIPE_ID = re.compile(r"[0-9a-f]{10}\Z", re.I)
+
+
+async def _resolve_shopping_recipe_ids(
+    client: HowToCookClient,
+    recipes: list[str],
+    *,
+    page_size: int,
+) -> list[str]:
+    identifiers: list[str] = []
+    for recipe in recipes:
+        if _STABLE_RECIPE_ID.fullmatch(recipe):
+            identifier = recipe.casefold()
+        else:
+            result = await client.recipes(q=recipe, page_size=page_size, fields="id,title")
+            items = (
+                [item for item in result.data if isinstance(item, dict)]
+                if isinstance(result.data, list)
+                else []
+            )
+            exact = [
+                item
+                for item in items
+                if str(item.get("title") or "").strip().casefold() == recipe.strip().casefold()
+            ]
+            candidates = exact if exact else items
+            if not candidates:
+                raise CommandError(f"没有找到购物清单中的菜谱：“{recipe}”")
+            if len(candidates) > 1:
+                names = "、".join(str(item.get("title") or "未命名") for item in candidates[:4])
+                raise CommandError(f"“{recipe}”匹配到多道菜（{names}），请写完整菜名")
+            identifier = str(candidates[0].get("id") or "")
+            if not identifier:
+                raise CommandError(f"菜谱“{recipe}”没有可用 ID")
+        identifiers.append(identifier)
+    return identifiers
+
+
 async def _expand_single_choice(
     client: HowToCookClient,
     document: Document,
@@ -95,6 +149,14 @@ def _check_display_limit(params: dict[str, object], key: str, config: Config) ->
     value = params.get(key)
     if value is not None and int(value) > config.how_to_cook_max_page_size:
         raise CommandError(f"单次最多显示 {config.how_to_cook_max_page_size} 条")
+
+
+def _diet_filter_meta(meta: dict[str, object], params: dict[str, object]) -> dict[str, object]:
+    enriched = dict(meta)
+    for key in ("tag", "exclude_tags"):
+        if params.get(key) is not None and enriched.get(key) is None:
+            enriched[key] = params[key]
+    return enriched
 
 
 async def execute_command(
@@ -120,7 +182,11 @@ async def execute_command(
             raise CommandError(f"每页最多显示 {config.how_to_cook_max_page_size} 条")
         params.update(q=command.query, page_size=page_size, image_mode=image_mode)
         result = await client.recipes(**params)
-        document = recipe_list_document(result.data, result.meta, asset_base_url=asset_base)
+        document = recipe_list_document(
+            result.data,
+            _diet_filter_meta(result.meta, params),
+            asset_base_url=asset_base,
+        )
         return await _expand_single_choice(client, document, image_mode=image_mode)
     if command.action == "random":
         params = dict(command.params)
@@ -128,7 +194,11 @@ async def execute_command(
         params.setdefault("count", 1)
         params.setdefault("image_mode", image_mode)
         result = await client.random_recipes(**params)
-        document = random_recipes_document(result.data, result.meta, asset_base_url=asset_base)
+        document = random_recipes_document(
+            result.data,
+            _diet_filter_meta(result.meta, params),
+            asset_base_url=asset_base,
+        )
         return await _expand_single_choice(client, document, image_mode=image_mode)
     if command.action == "menu":
         params = dict(command.params)
@@ -136,6 +206,27 @@ async def execute_command(
         result = await client.menu(**params)
         document = menu_document(result.data, result.meta, asset_base_url=asset_base)
         return await _expand_single_choice(client, document, image_mode=image_mode)
+    if command.action == "week_plan":
+        params = dict(command.params)
+        params.setdefault("days", 7)
+        params.setdefault("image_mode", image_mode)
+        result = await client.week_plan(**params)
+        document = week_plan_document(result.data, result.meta, asset_base_url=asset_base)
+        return await _expand_single_choice(client, document, image_mode=image_mode)
+    if command.action == "shopping_list":
+        params = dict(command.params)
+        raw_recipes = params.pop("recipes", [])
+        recipes = [str(value) for value in raw_recipes] if isinstance(raw_recipes, list) else []
+        identifiers = await _resolve_shopping_recipe_ids(
+            client,
+            recipes,
+            page_size=config.how_to_cook_max_page_size,
+        )
+        return await fetch_shopping_list_document(
+            client,
+            identifiers,
+            servings=int(params["servings"]) if params.get("servings") is not None else None,
+        )
     if command.action == "by_ingredients":
         params = dict(command.params)
         params.setdefault("limit", config.how_to_cook_default_page_size)
@@ -182,13 +273,35 @@ async def execute_command(
     if command.action == "content_check":
         result = await client.content_check()
         return content_check_document(result.data, asset_base_url=asset_base)
+    if command.action == "content_changelog":
+        params = dict(command.params)
+        days = int(params.get("days") or 30)
+        limit = int(params.get("limit") or config.how_to_cook_default_page_size)
+        _check_display_limit({"limit": limit}, "limit", config)
+        result = await client.content_changelog(days=days)
+        document = content_changelog_document(
+            result.data,
+            result.meta,
+            asset_base_url=asset_base,
+            limit=limit,
+        )
+        return await _expand_single_choice(client, document, image_mode=image_mode)
     if command.action == "recipe":
         assert command.identifier is not None
         return await fetch_recipe_document(client, command.identifier, image_mode=image_mode)
     if command.action in _RECIPE_RESOURCES:
         assert command.identifier is not None
         resource, title = _RECIPE_RESOURCES[command.action]
-        result = await client.recipe(command.identifier, resource=resource, image_mode=image_mode)
+        result = await client.recipe(
+            command.identifier,
+            resource=resource,
+            image_mode=image_mode,
+            servings=(
+                int(command.params["servings"])
+                if resource == "ingredients" and command.params.get("servings") is not None
+                else None
+            ),
+        )
         if resource not in {"markdown", "html", "raw"}:
             return recipe_resource_document(
                 resource,

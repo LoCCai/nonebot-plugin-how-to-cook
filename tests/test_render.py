@@ -11,7 +11,9 @@ from nonebot_plugin_how_to_cook.content import (
     Section,
     menu_document,
     recipe_list_document,
+    shopping_list_document,
     stats_document,
+    week_plan_document,
 )
 from nonebot_plugin_how_to_cook.render import CardRenderer, png_dimensions, sanitize_html_fragment
 
@@ -161,3 +163,57 @@ def test_menu_and_stats_cards_have_specialized_layouts() -> None:
     assert stats_html.count('class="chart-card"') == 4
     assert "分类分布" in stats_html
     assert "--bar: 100.0%" in stats_html
+
+
+def test_week_plan_and_shopping_cards_have_specialized_layouts() -> None:
+    renderer = CardRenderer(Config())
+    now = datetime(2026, 8, 28, 3, 30, tzinfo=timezone.utc)
+    plan = week_plan_document(
+        {
+            "days": [
+                {
+                    "day": 1,
+                    "meat": [
+                        {
+                            "id": "m",
+                            "title": "宫保鸡丁",
+                            "cover": {"url": "/assets/m.jpg", "alt": "成品"},
+                        }
+                    ],
+                    "vegetable": [{"id": "v", "title": "清炒时蔬"}],
+                    "soup": [{"id": "s", "title": "蛋花汤"}],
+                }
+            ]
+        },
+        {"seed": "week", "days": 1, "exclude_tags": [], "repeats": False},
+        asset_base_url="http://cook.test",
+    )
+    plan_html, _ = renderer.build_html(plan, theme="light", now=now)
+    assert 'class="week-days"' in plan_html
+    assert plan_html.count('class="plan-item"') == 3
+    assert "发送“购物清单”汇总整周用料" in plan_html
+    assert "/assets/m.jpg" in plan_html
+
+    shopping = shopping_list_document(
+        {
+            "items": [
+                {
+                    "name": "鸡蛋",
+                    "display_names": ["鸡蛋", "土鸡蛋"],
+                    "amounts": [{"value": 4, "unit": "个"}],
+                    "unspecified": [],
+                    "recipes": ["炒滑蛋"],
+                }
+            ],
+            "recipes": [{"id": "v", "title": "炒滑蛋"}],
+            "not_found": [],
+        },
+        {"servings": 4},
+        asset_base_url="http://cook.test",
+    )
+    shopping_html, _ = renderer.build_html(shopping, theme="dark", now=now)
+    assert 'class="shopping-grid"' in shopping_html
+    assert 'class="shopping-check"' in shopping_html
+    assert "鸡蛋" in shopping_html
+    assert "4 个" in shopping_html
+    assert "土鸡蛋" in shopping_html

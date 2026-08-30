@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
 from importlib import import_module
 
 from nonebot import logger
@@ -7,12 +9,30 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 from nonebot_plugin_waiter import waiter
 
 _CANCEL_WORDS = {"取消", "算了", "退出", "cancel", "quit", "q"}
+_SHOPPING_RE = re.compile(r"^(?:购物清单|采购清单|买菜清单)(?:\s*(\d+)\s*(?:人份?|份)?)?$", re.I)
 
 
-def parse_selection(value: str, result_count: int) -> int | None:
+@dataclass(frozen=True, slots=True)
+class ShoppingListSelection:
+    servings: int | None = None
+
+
+def parse_selection(
+    value: str,
+    result_count: int,
+    *,
+    allow_shopping_list: bool = False,
+) -> int | ShoppingListSelection | None:
     text = value.strip().casefold()
     if text in _CANCEL_WORDS:
         return -1
+    if allow_shopping_list:
+        matched = _SHOPPING_RE.fullmatch(text)
+        if matched:
+            servings = int(matched.group(1)) if matched.group(1) else None
+            if servings is None or 1 <= servings <= 100:
+                return ShoppingListSelection(servings)
+            return None
     if not text.isdigit():
         return None
     selected = int(text) - 1
@@ -45,10 +65,19 @@ async def send_transient_notice(
     )
 
 
-async def wait_for_selection(result_count: int, *, timeout: int) -> int | None:
+async def wait_for_selection(
+    result_count: int,
+    *,
+    timeout: int,
+    allow_shopping_list: bool = False,
+) -> int | ShoppingListSelection | None:
     @waiter(waits=["message"], keep_session=True)
-    async def selection_waiter(reply: MessageEvent) -> int | None:
-        return parse_selection(reply.get_plaintext(), result_count)
+    async def selection_waiter(reply: MessageEvent) -> int | ShoppingListSelection | None:
+        return parse_selection(
+            reply.get_plaintext(),
+            result_count,
+            allow_shopping_list=allow_shopping_list,
+        )
 
     return await selection_waiter.wait(timeout=timeout)
 

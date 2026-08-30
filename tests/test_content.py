@@ -2,13 +2,16 @@ from nonebot_plugin_how_to_cook.content import (
     Document,
     Section,
     aggregate_search_document,
+    content_changelog_document,
     content_check_document,
     ingredients_discovery_document,
     menu_document,
     recipe_document,
     recipe_list_document,
+    shopping_list_document,
     split_text,
     stats_document,
+    week_plan_document,
 )
 
 
@@ -61,7 +64,14 @@ def test_recipe_search_builds_numbered_visual_choices() -> None:
                 "matched": ["title", "ingredients"],
             },
         ],
-        {"total": 2, "page": 1, "pages": 1, "q": "test"},
+        {
+            "total": 2,
+            "page": 1,
+            "pages": 1,
+            "q": "test",
+            "tag": "vegetarian",
+            "exclude_tags": "spicy,seafood",
+        },
         asset_base_url="http://cook.test",
     )
     assert document.layout == "recipe_list"
@@ -76,6 +86,8 @@ def test_recipe_search_builds_numbered_visual_choices() -> None:
         ("难度", "★★★"),
     ]
     assert document.recipe_choices[1].matched == ["标题", "原料"]
+    assert "仅看：素食" in document.description
+    assert "已避开：含辣、水产" in document.description
 
 
 def test_document_text_and_lossless_splitting() -> None:
@@ -120,6 +132,88 @@ def test_menu_groups_share_global_selection_numbers() -> None:
     assert document.layout == "menu"
     assert [group.title for group in document.choice_groups] == ["荤菜与水产", "时蔬", "汤与粥"]
     assert [choice.number for choice in document.recipe_choices] == [1, 2, 3]
+    assert document.shopping_recipe_ids == ["m", "v", "s"]
+
+
+def test_week_plan_and_shopping_list_have_dedicated_models() -> None:
+    plan = week_plan_document(
+        {
+            "days": [
+                {
+                    "day": 1,
+                    "meat": [{"id": "m", "title": "宫保鸡丁", "diet_tags": ["peanut"]}],
+                    "vegetable": [{"id": "v", "title": "炒青菜"}],
+                    "soup": [{"id": "s", "title": "蛋花汤"}],
+                },
+                {
+                    "day": 2,
+                    "meat": [{"id": "m2", "title": "可乐鸡翅"}],
+                    "vegetable": [],
+                    "soup": [],
+                },
+            ]
+        },
+        {
+            "seed": "week",
+            "days": 2,
+            "exclude_tags": ["seafood"],
+            "repeats": False,
+        },
+        asset_base_url="http://cook.test",
+    )
+    assert plan.layout == "week_plan"
+    assert [group.title for group in plan.choice_groups] == ["第 1 天", "第 2 天"]
+    assert [choice.number for choice in plan.recipe_choices] == [1, 2, 3, 4]
+    assert plan.shopping_recipe_ids == ["m", "v", "s", "m2"]
+    assert "水产" in plan.description
+
+    shopping = shopping_list_document(
+        {
+            "items": [
+                {
+                    "name": "鸡蛋",
+                    "display_names": ["鸡蛋", "土鸡蛋"],
+                    "amounts": [{"value": 4.0, "unit": "个", "scaled": True}],
+                    "unspecified": [],
+                    "recipes": ["炒滑蛋"],
+                },
+                {
+                    "name": "可选配料",
+                    "display_names": ["可选配料"],
+                    "amounts": [],
+                    "unspecified": [],
+                    "recipes": ["炒滑蛋"],
+                },
+            ],
+            "recipes": [{"id": "v", "title": "炒滑蛋"}],
+            "not_found": [],
+        },
+        {"requested": 1, "servings": 4},
+        asset_base_url="http://cook.test",
+    )
+    assert shopping.layout == "shopping_list"
+    assert shopping.shopping_items[0].amount == "4 个"
+    assert shopping.shopping_items[0].aliases == ["土鸡蛋"]
+    assert len(shopping.shopping_items) == 1
+    assert "4 人份" in shopping.description
+
+
+def test_changelog_builds_numbered_selectable_groups() -> None:
+    document = content_changelog_document(
+        {
+            "added": [{"id": "new", "title": "新菜", "created_at": "2026-08-30"}],
+            "updated": [
+                {"id": "up", "title": "更新菜", "updated_at": "2026-08-29"},
+                {"id": "hidden", "title": "未展示", "updated_at": "2026-08-28"},
+            ],
+        },
+        {"days": 30, "added": 1, "updated": 2},
+        asset_base_url="http://cook.test",
+        limit=2,
+    )
+    assert document.layout == "changelog"
+    assert [choice.identifier for choice in document.recipe_choices] == ["new", "up"]
+    assert [group.title for group in document.choice_groups] == ["新增菜谱", "近期更新"]
 
 
 def test_aggregate_search_can_select_recipe_or_tip() -> None:

@@ -3,6 +3,7 @@ from nonebot.adapters.onebot.v11 import Message
 
 from nonebot_plugin_how_to_cook import matcher
 from nonebot_plugin_how_to_cook.content import Document, RecipeListItem
+from nonebot_plugin_how_to_cook.interaction import ShoppingListSelection
 
 
 @pytest.mark.asyncio
@@ -32,9 +33,10 @@ async def test_multiple_search_results_deliver_list_then_selected_detail(monkeyp
     async def fake_notice(_bot, _event, message, *, delay):
         notices.append((message, delay))
 
-    async def fake_wait(result_count, *, timeout):
+    async def fake_wait(result_count, *, timeout, allow_shopping_list):
         assert result_count == 2
         assert timeout == 120
+        assert allow_shopping_list is False
         return 1
 
     async def fake_fetch(_client, choice, *, image_mode):
@@ -61,3 +63,58 @@ async def test_multiple_search_results_deliver_list_then_selected_detail(monkeyp
     assert len(notices) == 1
     assert "1–2" in notices[0][0]
     assert notices[0][1] == 15
+
+
+@pytest.mark.asyncio
+async def test_menu_waiter_can_build_shopping_list_for_all_dishes(monkeypatch) -> None:
+    client = object()
+    delivery = object()
+    menu_document = Document(
+        "配餐",
+        layout="menu",
+        recipe_choices=[
+            RecipeListItem("first", "第一道菜"),
+            RecipeListItem("second", "第二道菜"),
+        ],
+        shopping_recipe_ids=["first", "second"],
+    )
+    shopping_document = Document("采购清单", layout="shopping_list")
+    delivered = []
+    fetched = []
+
+    async def fake_execute(*_args):
+        return menu_document
+
+    async def fake_deliver(_delivery, _bot, _event, document, **_kwargs):
+        delivered.append(document)
+        return True
+
+    async def fake_notice(*_args, **_kwargs):
+        return None
+
+    async def fake_wait(result_count, *, timeout, allow_shopping_list):
+        assert result_count == 2
+        assert timeout == 120
+        assert allow_shopping_list is True
+        return ShoppingListSelection(4)
+
+    async def fake_shopping(_client, identifiers, *, servings):
+        fetched.append((identifiers, servings))
+        return shopping_document
+
+    monkeypatch.setattr(matcher, "_client", lambda: client)
+    monkeypatch.setattr(matcher, "execute_command", fake_execute)
+    monkeypatch.setattr(matcher, "MessageDelivery", lambda *_args: delivery)
+    monkeypatch.setattr(matcher, "_deliver_document", fake_deliver)
+    monkeypatch.setattr(matcher, "send_transient_notice", fake_notice)
+    monkeypatch.setattr(matcher, "wait_for_selection", fake_wait)
+    monkeypatch.setattr(matcher, "fetch_shopping_list_document", fake_shopping)
+
+    await matcher.handle_how_to_cook(  # type: ignore[arg-type]
+        object(),
+        object(),
+        Message("配餐"),
+    )
+
+    assert delivered == [menu_document, shopping_document]
+    assert fetched == [(["first", "second"], 4)]

@@ -4,7 +4,9 @@ import pytest
 
 from nonebot_plugin_how_to_cook import interaction
 from nonebot_plugin_how_to_cook.interaction import (
+    ShoppingListSelection,
     parse_recipe_selection,
+    parse_selection,
     send_transient_notice,
     wait_for_recipe_selection,
 )
@@ -16,6 +18,13 @@ from nonebot_plugin_how_to_cook.interaction import (
 )
 def test_parse_recipe_selection(value: str, expected: int | None) -> None:
     assert parse_recipe_selection(value, 3) == expected
+
+
+def test_plan_selection_can_request_a_scaled_shopping_list() -> None:
+    assert parse_selection("购物清单", 21, allow_shopping_list=True) == ShoppingListSelection()
+    assert parse_selection("购物清单 4人", 21, allow_shopping_list=True) == ShoppingListSelection(4)
+    assert parse_selection("购物清单 101", 21, allow_shopping_list=True) is None
+    assert parse_selection("购物清单", 21) is None
 
 
 @pytest.mark.asyncio

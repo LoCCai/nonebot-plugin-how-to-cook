@@ -40,6 +40,15 @@ _ACTIONS = {
     "配餐": "menu",
     "菜单": "menu",
     "menu": "menu",
+    "周计划": "week_plan",
+    "一周计划": "week_plan",
+    "周菜单": "week_plan",
+    "week": "week_plan",
+    "week-plan": "week_plan",
+    "购物清单": "shopping_list",
+    "采购清单": "shopping_list",
+    "买菜清单": "shopping_list",
+    "shopping-list": "shopping_list",
     "食材": "by_ingredients",
     "食材找菜": "by_ingredients",
     "库存": "by_ingredients",
@@ -61,6 +70,9 @@ _ACTIONS = {
     "内容检查": "content_check",
     "检查更新": "content_check",
     "content-check": "content_check",
+    "更新日志": "content_changelog",
+    "内容变更": "content_changelog",
+    "changelog": "content_changelog",
     "详情": "recipe",
     "菜谱": "recipe",
     "做法": "recipe",
@@ -71,6 +83,8 @@ _ACTIONS = {
     "菜谱原料": "ingredients",
     "食材清单": "ingredients",
     "ingredients": "ingredients",
+    "份量": "ingredients",
+    "几人份": "ingredients",
     "工具": "tools",
     "tools": "tools",
     "步骤": "steps",
@@ -86,6 +100,9 @@ _ACTIONS = {
     "html": "html",
     "原文": "raw",
     "raw": "raw",
+    "jsonld": "jsonld",
+    "json-ld": "jsonld",
+    "结构化数据": "jsonld",
     "技巧": "tips",
     "tips": "tips",
     "技巧详情": "tip",
@@ -164,6 +181,12 @@ _SEARCH_OPTIONS = {
     "--每页": "page_size",
     "--fields": "fields",
     "--字段": "fields",
+    "--tag": "tag",
+    "--标签": "tag",
+    "--饮食标签": "tag",
+    "--exclude-tags": "exclude_tags",
+    "--排除标签": "exclude_tags",
+    "--忌口": "exclude_tags",
     **_IMAGE_OPTIONS,
 }
 _RANDOM_OPTIONS = {
@@ -175,6 +198,9 @@ _RANDOM_OPTIONS = {
     "--分类": "category",
     "--difficulty": "difficulty",
     "--难度": "difficulty",
+    "--exclude-tags": "exclude_tags",
+    "--排除标签": "exclude_tags",
+    "--忌口": "exclude_tags",
     **_IMAGE_OPTIONS,
 }
 _MENU_OPTIONS = {
@@ -190,7 +216,27 @@ _MENU_OPTIONS = {
     "--汤": "soup",
     "--max-difficulty": "max_difficulty",
     "--最高难度": "max_difficulty",
+    "--exclude-tags": "exclude_tags",
+    "--排除标签": "exclude_tags",
+    "--忌口": "exclude_tags",
     **_IMAGE_OPTIONS,
+}
+_WEEK_OPTIONS = {
+    "--days": "days",
+    "--天数": "days",
+    **_MENU_OPTIONS,
+}
+_SHOPPING_OPTIONS = {
+    "--servings": "servings",
+    "--份数": "servings",
+    "--人数": "servings",
+}
+_SERVINGS_OPTIONS = dict(_SHOPPING_OPTIONS)
+_CHANGELOG_OPTIONS = {
+    "--days": "days",
+    "--天数": "days",
+    "--limit": "limit",
+    "--数量": "limit",
 }
 _INGREDIENT_OPTIONS = {
     "--match": "ingredient_mode",
@@ -220,6 +266,31 @@ _TIP_OPTIONS = {
 }
 _QUERY_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 _INGREDIENT_SPLIT = re.compile(r"[,，、\s]+")
+_SHOPPING_SPLIT = re.compile(r"[,，、+]+")
+_DIET_TAG_SPLIT = re.compile(r"[,，、\s]+")
+_DIET_TAG_ALIASES = {
+    "vegetarian": "vegetarian",
+    "素": "vegetarian",
+    "素食": "vegetarian",
+    "spicy": "spicy",
+    "辣": "spicy",
+    "含辣": "spicy",
+    "seafood": "seafood",
+    "海鲜": "seafood",
+    "水产": "seafood",
+    "peanut": "peanut",
+    "花生": "peanut",
+    "egg": "egg",
+    "蛋": "egg",
+    "鸡蛋": "egg",
+    "dairy": "dairy",
+    "奶": "dairy",
+    "乳": "dairy",
+    "乳制品": "dairy",
+    "gluten": "gluten",
+    "麸质": "gluten",
+    "面筋": "gluten",
+}
 
 
 def _split_option(token: str) -> tuple[str, str | None]:
@@ -322,6 +393,31 @@ def _typed_options(
     return result
 
 
+def _normalize_diet_options(params: dict[str, Any]) -> dict[str, Any]:
+    for key, label in (("tag", "饮食标签"), ("exclude_tags", "忌口标签")):
+        raw = params.get(key)
+        if raw is None:
+            continue
+        tags: list[str] = []
+        unknown: list[str] = []
+        for value in _DIET_TAG_SPLIT.split(str(raw).strip().casefold()):
+            if not value:
+                continue
+            normalized = _DIET_TAG_ALIASES.get(value)
+            if normalized is None:
+                unknown.append(value)
+            elif normalized not in tags:
+                tags.append(normalized)
+        if unknown:
+            raise CommandError(
+                f"未知{label}：{'、'.join(unknown)}；支持素食、辣、海鲜、花生、蛋、乳制品、麸质"
+            )
+        if not tags:
+            raise CommandError(f"{label}不能为空")
+        params[key] = ",".join(tags)
+    return params
+
+
 def _parse_generic(tokens: list[str]) -> tuple[str, dict[str, str]]:
     if not tokens:
         raise CommandError("请提供接口路径，例如：接口 recipes q=红烧肉")
@@ -380,7 +476,14 @@ def parse_command(text: str) -> ParsedCommand:
         query = " ".join(positional).strip()
         if not query and not any(
             raw_options.get(key)
-            for key in ("category", "ingredient", "difficulty", "max_difficulty")
+            for key in (
+                "category",
+                "ingredient",
+                "difficulty",
+                "max_difficulty",
+                "tag",
+                "exclude_tags",
+            )
         ):
             raise CommandError("请提供菜名、拼音、原料或筛选条件")
         params = _typed_options(
@@ -392,7 +495,13 @@ def parse_command(text: str) -> ParsedCommand:
                 "page_size": (1, 100, "每页数量"),
             },
         )
-        return ParsedCommand(action, query=query or None, params=params, mode=mode, theme=theme)
+        return ParsedCommand(
+            action,
+            query=query or None,
+            params=_normalize_diet_options(params),
+            mode=mode,
+            theme=theme,
+        )
     if action == "random":
         positional, raw_options = _take_options(remainder, _RANDOM_OPTIONS)
         if len(positional) > 1 or (positional and not positional[0].isdigit()):
@@ -403,7 +512,12 @@ def parse_command(text: str) -> ParsedCommand:
             raw_options,
             integer_rules={"count": (1, 20, "数量"), "difficulty": (1, 5, "难度")},
         )
-        return ParsedCommand(action, params=params, mode=mode, theme=theme)
+        return ParsedCommand(
+            action,
+            params=_normalize_diet_options(params),
+            mode=mode,
+            theme=theme,
+        )
     if action == "menu":
         positional, raw_options = _take_options(remainder, _MENU_OPTIONS)
         if positional:
@@ -419,6 +533,53 @@ def parse_command(text: str) -> ParsedCommand:
         )
         if all(params.get(key) == 0 for key in ("meat", "vegetable", "soup")):
             raise CommandError("荤菜、素菜和汤不能同时为 0")
+        return ParsedCommand(
+            action,
+            params=_normalize_diet_options(params),
+            mode=mode,
+            theme=theme,
+        )
+    if action == "week_plan":
+        positional, raw_options = _take_options(remainder, _WEEK_OPTIONS)
+        if len(positional) > 1 or (positional and not positional[0].isdigit()):
+            raise CommandError("周计划可直接写天数，例如：做饭 周计划 7")
+        if positional:
+            raw_options.setdefault("days", positional[0])
+        params = _typed_options(
+            raw_options,
+            integer_rules={
+                "days": (1, 14, "计划天数"),
+                "meat": (0, 3, "每日荤菜数量"),
+                "vegetable": (0, 3, "每日素菜数量"),
+                "soup": (0, 3, "每日汤数量"),
+                "max_difficulty": (1, 5, "最高难度"),
+            },
+        )
+        if all(params.get(key) == 0 for key in ("meat", "vegetable", "soup")):
+            raise CommandError("每日荤菜、素菜和汤不能同时为 0")
+        return ParsedCommand(
+            action,
+            params=_normalize_diet_options(params),
+            mode=mode,
+            theme=theme,
+        )
+    if action == "shopping_list":
+        positional, raw_options = _take_options(remainder, _SHOPPING_OPTIONS)
+        recipes: list[str] = []
+        for token in positional:
+            for value in _SHOPPING_SPLIT.split(token):
+                value = value.strip()
+                if value and value not in recipes:
+                    recipes.append(value)
+        if not recipes:
+            raise CommandError("请提供菜名或菜谱 ID，例如：做饭 购物清单 宫保鸡丁,炒滑蛋 --份数 4")
+        if len(recipes) > 50:
+            raise CommandError("购物清单一次最多合并 50 道菜")
+        params = _typed_options(
+            raw_options,
+            integer_rules={"servings": (1, 100, "份数")},
+        )
+        params["recipes"] = recipes
         return ParsedCommand(action, params=params, mode=mode, theme=theme)
     if action == "by_ingredients":
         positional, raw_options = _take_options(
@@ -469,6 +630,20 @@ def parse_command(text: str) -> ParsedCommand:
             mode=mode,
             theme=theme,
         )
+    if action == "content_changelog":
+        positional, raw_options = _take_options(remainder, _CHANGELOG_OPTIONS)
+        if len(positional) > 1 or (positional and not positional[0].isdigit()):
+            raise CommandError("更新日志可直接写回溯天数，例如：做饭 更新日志 30")
+        if positional:
+            raw_options.setdefault("days", positional[0])
+        params = _typed_options(
+            raw_options,
+            integer_rules={
+                "days": (1, 365, "回溯天数"),
+                "limit": (1, 100, "展示数量"),
+            },
+        )
+        return ParsedCommand(action, params=params, mode=mode, theme=theme)
     if action == "tips":
         positional, raw_options = _take_options(remainder, _TIP_OPTIONS)
         params = _typed_options(
@@ -485,6 +660,23 @@ def parse_command(text: str) -> ParsedCommand:
     if action == "api":
         endpoint, params = _parse_generic(remainder)
         return ParsedCommand(action, identifier=endpoint, params=params, mode=mode, theme=theme)
+
+    if action == "ingredients":
+        positional, raw_options = _take_options(remainder, _SERVINGS_OPTIONS)
+        identifier = " ".join(positional).strip()
+        if not identifier:
+            raise CommandError("原料需要菜谱 ID 或路径")
+        params = _typed_options(
+            raw_options,
+            integer_rules={"servings": (1, 100, "份数")},
+        )
+        return ParsedCommand(
+            action,
+            identifier=identifier,
+            params=params,
+            mode=mode,
+            theme=theme,
+        )
 
     if not remainder:
         raise CommandError(f"{tokens[0]} 需要菜谱或技巧 ID/路径")

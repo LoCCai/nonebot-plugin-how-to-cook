@@ -9,8 +9,8 @@ from .commands import CommandError, parse_command
 from .config import ResponseMode, ThemeMode, plugin_config
 from .content import Document
 from .delivery import DeliveryError, DeliveryResultUnknown, MessageDelivery
-from .interaction import send_transient_notice, wait_for_selection
-from .service import execute_command, fetch_selection_document
+from .interaction import ShoppingListSelection, send_transient_notice, wait_for_selection
+from .service import execute_command, fetch_selection_document, fetch_shopping_list_document
 
 how_to_cook = on_command(
     "做饭",
@@ -90,18 +90,28 @@ async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = Comm
         return
 
     choice_count = len(document.recipe_choices)
+    allow_shopping_list = bool(document.shopping_recipe_ids)
     selection_timeout = plugin_config.how_to_cook_selection_timeout_seconds
     try:
+        shopping_hint = (
+            "；发送“购物清单”汇总全部用料，或发送“购物清单 4”按 4 人份换算"
+            if allow_shopping_list
+            else ""
+        )
         await send_transient_notice(
             bot,
             event,
             (
                 f"请在 {selection_timeout} 秒内发送 1–{choice_count} 的序号查看详情；"
-                "菜谱会打开完整做法，技巧会打开全文；发送“取消”结束。"
+                f"菜谱会打开完整做法，技巧会打开全文{shopping_hint}；发送“取消”结束。"
             ),
             delay=plugin_config.how_to_cook_reminder_recall_seconds,
         )
-        selected = await wait_for_selection(choice_count, timeout=selection_timeout)
+        selected = await wait_for_selection(
+            choice_count,
+            timeout=selection_timeout,
+            allow_shopping_list=allow_shopping_list,
+        )
     except Exception:
         logger.exception("HowToCook 等待菜谱序号失败")
         return
@@ -112,6 +122,27 @@ async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = Comm
             event,
             "本次菜谱选择已超时，请重新发送“做饭 <关键词>”搜索。",
             delay=plugin_config.how_to_cook_reminder_recall_seconds,
+        )
+        return
+    if isinstance(selected, ShoppingListSelection):
+        try:
+            shopping_document = await fetch_shopping_list_document(
+                client,
+                document.shopping_recipe_ids,
+                servings=selected.servings,
+            )
+        except HowToCookAPIError as exc:
+            await how_to_cook.finish(exc.user_message())
+        except Exception:
+            logger.exception("HowToCook 汇总购物清单失败")
+            await how_to_cook.finish("汇总购物清单失败了，请稍后再试。")
+        await _deliver_document(
+            delivery,
+            bot,
+            event,
+            shopping_document,
+            mode=mode,
+            theme=command.theme,
         )
         return
     if selected < 0:
