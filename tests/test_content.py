@@ -1,3 +1,4 @@
+from nonebot_plugin_how_to_cook.api import APIResult
 from nonebot_plugin_how_to_cook.content import (
     Document,
     Section,
@@ -8,6 +9,7 @@ from nonebot_plugin_how_to_cook.content import (
     menu_document,
     recipe_document,
     recipe_list_document,
+    recipe_resource_document,
     shopping_list_document,
     split_text,
     stats_document,
@@ -273,6 +275,74 @@ def test_ingredient_cards_explain_formula_chinese_and_colon_quantities() -> None
     assert "姜：2 片" in text
     assert "牛奶：200 ml" in text
     assert "盐：适量（按原文保留，无法自动换算）" in text
+
+
+def test_ingredient_resource_exposes_dual_scaling_factors_and_api_note() -> None:
+    api_note = (
+        "静态数量乘 factor（servings/基准份数）；公式型每份量（per_serving=true）乘 "
+        "per_serving_factor（=servings），故 servings=1 时公式型保持不变"
+    )
+    document = recipe_resource_document(
+        "ingredients",
+        APIResult(
+            endpoint="recipes/scaled/ingredients",
+            url="http://cook.test/api/recipes/scaled/ingredients?servings=1",
+            data=[
+                {
+                    "name": "韭菜",
+                    "quantity": "100g",
+                    "quantity_original": "100g",
+                    "per_serving": True,
+                    "quantity_note": "份数",
+                    "scaled": False,
+                }
+            ],
+            meta={
+                "id": "scaled",
+                "title": "韭菜炒蛋",
+                "total": 1,
+                "servings": 1,
+                "base_servings": 2,
+                "factor": 0.5,
+                "per_serving_factor": 1,
+                "note": api_note,
+            },
+        ),
+        asset_base_url="http://cook.test",
+    )
+
+    text = document.full_text()
+    assert ("静态量", "×0.5") in document.stats
+    assert ("每份量", "×1") in document.stats
+    assert "静态数量：×0.5（目标份数 ÷ 基准份数）" in text
+    assert "公式型每份量：×1" in text
+    assert "本次每份量系数为 1，数量保持不变" in text
+    assert "按原文保留，无法自动换算" not in text
+    assert "上游 API 说明：" in text
+    assert api_note in text
+
+
+def test_ingredient_resource_keeps_old_api_scaling_fallback() -> None:
+    document = recipe_resource_document(
+        "ingredients",
+        APIResult(
+            endpoint="recipes/legacy/ingredients",
+            url="http://cook.test/api/recipes/legacy/ingredients?servings=4",
+            data=[],
+            meta={
+                "id": "legacy",
+                "title": "旧版接口菜谱",
+                "total": 0,
+                "servings": 4,
+                "base_servings": 2,
+                "factor": 2,
+            },
+        ),
+        asset_base_url="http://cook.test",
+    )
+
+    assert "公式型每份量：直接按目标人数换算（兼容旧版 API）" in document.full_text()
+    assert all(label != "每份量" for label, _value in document.stats)
 
 
 def test_changelog_builds_numbered_selectable_groups() -> None:

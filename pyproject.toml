@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-how-to-cook"
-version = "0.4.0"
+version = "0.4.1"
 description = "A complete HowToCook client with weekly plans, shopping lists and rich cards"
 authors = [
     { name = "LoCCai", email = "loccai@qq.com" },

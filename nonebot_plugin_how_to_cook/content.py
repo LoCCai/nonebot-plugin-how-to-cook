@@ -338,7 +338,14 @@ def _choice_sections(choices: list[RecipeListItem]) -> list[Section]:
     return sections
 
 
-def _ingredient_lines(items: Any) -> str:
+def _is_unit_factor(value: Any) -> bool:
+    try:
+        return float(value) == 1.0
+    except (TypeError, ValueError):
+        return False
+
+
+def _ingredient_lines(items: Any, *, per_serving_factor: Any = None) -> str:
     if not isinstance(items, list):
         return "暂无结构化原料信息"
     lines: list[str] = []
@@ -355,16 +362,19 @@ def _ingredient_lines(items: Any) -> str:
         suffix = " ".join(part for part in (quantity, note) if part)
         original = _text(item.get("quantity_original"), "")
         annotations: list[str] = []
-        if item.get("per_serving"):
+        is_per_serving = bool(item.get("per_serving"))
+        if is_per_serving:
             baseline = original or quantity
             annotations.append(f"每份基准 {baseline}" if baseline else "按每份计量")
+            if _is_unit_factor(per_serving_factor):
+                annotations.append("本次每份量系数为 1，数量保持不变")
         quantity_note = _text(item.get("quantity_note"), "")
         if quantity_note:
             annotations.append(f"换算说明 {quantity_note}")
         if scaled_state is True and original and original != quantity:
-            if not item.get("per_serving"):
+            if not is_per_serving:
                 annotations.append(f"原用量 {original}")
-        elif scaled_state is False:
+        elif scaled_state is False and not (is_per_serving and _is_unit_factor(per_serving_factor)):
             annotations.append("按原文保留，无法自动换算")
         if annotations:
             suffix += f"（{'；'.join(annotations)}）"
@@ -1379,16 +1389,44 @@ def recipe_resource_document(
             filename_hint=f"HowToCook-{title}-元信息",
         )
     if resource == "ingredients":
-        sections = [Section("完整原料与用量", _ingredient_lines(data))]
+        per_serving_factor = meta.get("per_serving_factor")
+        sections = [
+            Section(
+                "完整原料与用量",
+                _ingredient_lines(data, per_serving_factor=per_serving_factor),
+            )
+        ]
         if meta.get("servings") is not None:
+            scaling_lines = [
+                (
+                    f"目标 {meta['servings']} 人份；原菜谱按 "
+                    f"{meta.get('base_servings', 2)} 人份计算。"
+                ),
+                "",
+            ]
+            if meta.get("factor") is not None:
+                scaling_lines.append(
+                    f"- 静态数量：×{_text(meta.get('factor'))}（目标份数 ÷ 基准份数）"
+                )
+            else:
+                scaling_lines.append("- 静态数量：按目标份数与菜谱基准份数换算")
+            if per_serving_factor is not None:
+                unchanged = (
+                    "；系数为 1 时数量保持不变" if _is_unit_factor(per_serving_factor) else ""
+                )
+                scaling_lines.append(
+                    f"- 公式型每份量：×{_text(per_serving_factor)}（每份基准 × 目标份数"
+                    f"{unchanged}）"
+                )
+            else:
+                scaling_lines.append("- 公式型每份量：直接按目标人数换算（兼容旧版 API）")
+            if meta.get("note"):
+                scaling_lines.extend(["", "上游 API 说明：", f"> {meta['note']}"])
+            scaling_lines.extend(["", "中文数量词会先规范化；“适量”等模糊写法保留原文。"])
             sections.append(
                 Section(
                     "份数换算说明",
-                    (
-                        f"目标 {meta['servings']} 人份；原菜谱按 {meta.get('base_servings', 2)} "
-                        f"人份计算，静态量系数 {_text(meta.get('factor'))}。公式型每份量直接按"
-                        "目标人数换算，中文数量词会先规范化；“适量”等模糊写法保留原文。"
-                    ),
+                    "\n".join(scaling_lines),
                 )
             )
     elif resource == "tools":
@@ -1446,7 +1484,12 @@ def recipe_resource_document(
         )
     stats = [("条目", str(meta.get("total") or 0)), ("菜谱 ID", _text(meta.get("id")))]
     if resource == "ingredients" and meta.get("servings") is not None:
-        stats.insert(1, ("目标份数", f"{meta['servings']} 人"))
+        stats = [("条目", str(meta.get("total") or 0)), ("目标份数", f"{meta['servings']} 人")]
+        if meta.get("factor") is not None:
+            stats.append(("静态量", f"×{_text(meta.get('factor'))}"))
+        if meta.get("per_serving_factor") is not None:
+            stats.append(("每份量", f"×{_text(meta.get('per_serving_factor'))}"))
+        stats.append(("菜谱 ID", _text(meta.get("id"))))
     return Document(
         title=f"{title} · {sections[0].title}",
         kicker="HOW TO COOK · STRUCTURED DATA",

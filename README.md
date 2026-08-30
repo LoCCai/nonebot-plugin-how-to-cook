@@ -217,6 +217,8 @@ HOW_TO_COOK_DARK_END=08:00
 
 新版原料字段 `per_serving`、`quantity_note`、`quantity_original` 与 `scaled` 会直接进入卡片说明：公式型数量标明“每份基准”和取整等换算备注，中文数量词与冒号格式采用 API 规范化后的数量，缩放后仍展示原始用量；无法可靠计算的“适量/若干”继续原样保留。
 
+请求 `servings` 时，原料卡会同时展示响应 `meta.factor`（静态数量按“目标份数 ÷ 菜谱基准份数”缩放）、`meta.per_serving_factor`（公式型每份量按目标份数缩放）以及上游 `meta.note`。因此 `servings=1` 时可以清楚看到静态系数可能为 `0.5`、每份量系数为 `1`；公式型数量保持不变是每份语义，不是缩放失败。若连接尚未提供双系数字段的旧版 API，卡片会回退到原有说明，不影响查询。
+
 通用接口命令不会接受任意 URL、请求体或非 GET 方法，也拒绝路径穿越。它允许访问当前配置的 HowToCook API 下已知只读路由，包括 `random`、`menu`、`plan/week`、`by-ingredients`、`related`、JSON-LD、聚合搜索、统计、changelog、OpenAPI 和内容版本/检查；实际内容更新始终排除。计算型购物清单只能由专用命令调用。
 
 ## 开发验证

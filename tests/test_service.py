@@ -413,6 +413,8 @@ async def test_scaled_ingredients_and_changelog_are_exposed() -> None:
                         "servings": 4,
                         "base_servings": 2,
                         "factor": 2,
+                        "per_serving_factor": 4,
+                        "note": "静态数量乘 factor；公式型每份量乘 per_serving_factor",
                     },
                 },
             )
@@ -431,6 +433,10 @@ async def test_scaled_ingredients_and_changelog_are_exposed() -> None:
     ingredients = await execute_command(client, parse_command("原料 abc --份数 4"), Config())
     changelog = await execute_command(client, parse_command("更新日志 30 --数量 2"), Config())
     assert "目标 4 人份" in ingredients.full_text()
+    assert "静态数量：×2" in ingredients.full_text()
+    assert "公式型每份量：×4" in ingredients.full_text()
+    assert "上游 API 说明：" in ingredients.full_text()
+    assert "静态数量乘 factor；公式型每份量乘 per_serving_factor" in ingredients.full_text()
     assert changelog.layout == "changelog"
     assert len(changelog.recipe_choices) == 2
     assert requests[0].url.params["servings"] == "4"

@@ -7,7 +7,7 @@ require("nonebot_plugin_waiter")
 from .config import Config  # noqa: E402
 from .matcher import how_to_cook as how_to_cook  # noqa: E402
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 _MENU_GROUP = {
     "key": "utilities",
@@ -138,8 +138,10 @@ __plugin_meta__ = PluginMetadata(
                 "detail_des": (
                     "详情包含分类、难度、卡路里、用时、烹饪方式、饮食标签、作者、完整原料、"
                     "工具、步骤、备注、正文与成品图。原料接口支持按 1–100 人份换算；公式型"
-                    "数量标明每份基准与换算说明，中文数量词和冒号格式采用规范化数量，缩放"
-                    "后保留原始用量，模糊量仍标记为原文保留。JSON-LD 提供 schema.org Recipe 数据。"
+                    "数量会同时标明静态系数与每份量系数，并附上游换算说明；中文数量词和"
+                    "冒号格式采用规范化数量，缩放后保留原始用量，模糊量仍标记为原文保留。"
+                    "公式型数量在 1 人份、每份量系数为 1 时保持不变。JSON-LD 提供 "
+                    "schema.org Recipe 数据。"
                     "日常使用无需复制 ID。"
                 ),
                 "pmn_hidden": False,
