@@ -126,13 +126,26 @@ def test_menu_groups_share_global_selection_numbers() -> None:
             "vegetable": [{"id": "v", "title": "油麦菜"}],
             "soup": [{"id": "s", "title": "蛋花汤"}],
         },
-        {"seed": "dinner", "max_difficulty": 3, "unfilled": []},
+        {
+            "seed": "dinner",
+            "max_difficulty": 3,
+            "unfilled": [],
+            "slots": {"meat": 1, "vegetable": 1, "soup": 1},
+        },
         asset_base_url="http://cook.test",
     )
     assert document.layout == "menu"
-    assert [group.title for group in document.choice_groups] == ["荤菜与水产", "时蔬", "汤与粥"]
+    assert [group.title for group in document.choice_groups] == [
+        "荤菜与水产",
+        "时蔬",
+        "汤与粥",
+        "早餐",
+        "饮品",
+        "甜品",
+    ]
     assert [choice.number for choice in document.recipe_choices] == [1, 2, 3]
     assert document.shopping_recipe_ids == ["m", "v", "s"]
+    assert "1 道荤菜/水产 + 1 道时蔬 + 1 道汤与粥" in document.description
 
 
 def test_week_plan_and_shopping_list_have_dedicated_models() -> None:
@@ -144,28 +157,61 @@ def test_week_plan_and_shopping_list_have_dedicated_models() -> None:
                     "meat": [{"id": "m", "title": "宫保鸡丁", "diet_tags": ["peanut"]}],
                     "vegetable": [{"id": "v", "title": "炒青菜"}],
                     "soup": [{"id": "s", "title": "蛋花汤"}],
+                    "breakfast": [{"id": "b", "title": "牛奶燕麦"}],
+                    "drink": [{"id": "d", "title": "柠檬水"}],
+                    "dessert": [{"id": "x", "title": "奶冻"}],
                 },
                 {
                     "day": 2,
                     "meat": [{"id": "m2", "title": "可乐鸡翅"}],
                     "vegetable": [],
                     "soup": [],
+                    "breakfast": [],
+                    "drink": [{"id": "d2", "title": "豆浆"}],
+                    "dessert": [],
                 },
-            ]
+            ],
+            "shopping_list": {
+                "items": [
+                    {
+                        "name": "鸡蛋",
+                        "display_names": ["鸡蛋"],
+                        "amounts": [{"value": 4, "unit": "个", "scaled": True}],
+                        "unspecified": [],
+                        "recipes": ["蛋花汤"],
+                    }
+                ],
+                "recipes": [{"id": "s", "title": "蛋花汤"}],
+                "not_found": [],
+            },
         },
         {
             "seed": "week",
             "days": 2,
             "exclude_tags": ["seafood"],
             "repeats": False,
+            "unfilled": 0,
+            "slots": {
+                "meat": [1, 2],
+                "vegetable": [1, 1],
+                "soup": [1, 0],
+                "breakfast": [1, 0],
+                "drink": [1, 1],
+                "dessert": [1, 0],
+            },
+            "shopping_list": {"items": 1, "servings": 4, "scaled": True},
         },
         asset_base_url="http://cook.test",
     )
     assert plan.layout == "week_plan"
     assert [group.title for group in plan.choice_groups] == ["第 1 天", "第 2 天"]
-    assert [choice.number for choice in plan.recipe_choices] == [1, 2, 3, 4]
-    assert plan.shopping_recipe_ids == ["m", "v", "s", "m2"]
+    assert [choice.number for choice in plan.recipe_choices] == list(range(1, 9))
+    assert plan.shopping_recipe_ids == ["m", "v", "s", "b", "d", "x", "m2", "d2"]
     assert "水产" in plan.description
+    assert "荤菜/水产按天 1/2 道" in plan.description
+    assert plan.embedded_shopping_list is not None
+    assert plan.embedded_shopping_list.shopping_items[0].amount == "4 个"
+    assert plan.shopping_servings == 4
 
     shopping = shopping_list_document(
         {
@@ -196,6 +242,37 @@ def test_week_plan_and_shopping_list_have_dedicated_models() -> None:
     assert shopping.shopping_items[0].aliases == ["土鸡蛋"]
     assert len(shopping.shopping_items) == 1
     assert "4 人份" in shopping.description
+
+
+def test_ingredient_cards_explain_formula_chinese_and_colon_quantities() -> None:
+    document = recipe_document(
+        {
+            "id": "scaled",
+            "title": "兼容用量",
+            "ingredients": [
+                {
+                    "name": "鸡蛋",
+                    "quantity": "6 个",
+                    "quantity_original": "1.5 个",
+                    "per_serving": True,
+                    "quantity_note": "份数，向上取整",
+                    "scaled": True,
+                    "raw": "鸡蛋：1.5 个 * 份数，向上取整",
+                },
+                {"name": "姜", "quantity": "2 片", "raw": "姜：两片"},
+                {"name": "牛奶", "quantity": "200 ml", "raw": "牛奶：200ml"},
+                {"name": "盐", "quantity": "适量", "scaled": False, "raw": "盐：适量"},
+            ],
+            "tools": [],
+            "steps": [],
+        },
+        asset_base_url="http://cook.test",
+    )
+    text = document.full_text()
+    assert "鸡蛋：6 个（每份基准 1.5 个；换算说明 份数，向上取整）" in text
+    assert "姜：2 片" in text
+    assert "牛奶：200 ml" in text
+    assert "盐：适量（按原文保留，无法自动换算）" in text
 
 
 def test_changelog_builds_numbered_selectable_groups() -> None:

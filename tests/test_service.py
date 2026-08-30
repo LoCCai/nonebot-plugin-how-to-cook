@@ -4,7 +4,8 @@ import pytest
 from nonebot_plugin_how_to_cook.api import HowToCookClient
 from nonebot_plugin_how_to_cook.commands import CommandError, parse_command
 from nonebot_plugin_how_to_cook.config import Config
-from nonebot_plugin_how_to_cook.service import execute_command
+from nonebot_plugin_how_to_cook.content import Document, RecipeListItem
+from nonebot_plugin_how_to_cook.service import execute_command, fetch_detail_bundle_documents
 
 
 @pytest.mark.asyncio
@@ -163,6 +164,8 @@ async def test_aggregate_single_tip_expands_to_tip_detail() -> None:
 async def test_menu_and_stats_use_dedicated_layouts() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/menu":
+            assert "servings" not in request.url.params
+            assert request.url.params["breakfast"] == "1"
             return httpx.Response(
                 200,
                 json={
@@ -170,6 +173,9 @@ async def test_menu_and_stats_use_dedicated_layouts() -> None:
                         "meat": [{"id": "m", "title": "肉"}],
                         "vegetable": [{"id": "v", "title": "菜"}],
                         "soup": [{"id": "s", "title": "汤"}],
+                        "breakfast": [{"id": "b", "title": "早餐"}],
+                        "drink": [],
+                        "dessert": [],
                     },
                     "meta": {"seed": "x", "unfilled": []},
                 },
@@ -178,10 +184,10 @@ async def test_menu_and_stats_use_dedicated_layouts() -> None:
         return httpx.Response(200, json={"data": {"recipes": 3, "tips": 1}})
 
     client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
-    menu = await execute_command(client, parse_command("配餐 --种子 x"), Config())
+    menu = await execute_command(client, parse_command("配餐 --早餐 1 --人数 4 --种子 x"), Config())
     stats = await execute_command(client, parse_command("统计"), Config())
     assert menu.layout == "menu"
-    assert len(menu.recipe_choices) == 3
+    assert len(menu.recipe_choices) == 4
     assert stats.layout == "stats"
 
 
@@ -201,14 +207,27 @@ async def test_week_plan_uses_live_contract_and_keeps_choices() -> None:
                             "meat": [{"id": "m", "title": "肉"}],
                             "vegetable": [{"id": "v", "title": "菜"}],
                             "soup": [],
+                            "breakfast": [{"id": "b", "title": "早餐"}],
+                            "drink": [],
+                            "dessert": [],
                         }
-                    ]
+                    ],
+                    "shopping_list": {"items": [], "recipes": [], "not_found": []},
                 },
                 "meta": {
                     "seed": "week",
                     "days": 1,
                     "exclude_tags": ["seafood"],
                     "repeats": False,
+                    "slots": {
+                        "meat": [1],
+                        "vegetable": [1],
+                        "soup": [0],
+                        "breakfast": [1],
+                        "drink": [0],
+                        "dessert": [0],
+                    },
+                    "shopping_list": {"items": 0, "servings": 4, "scaled": True},
                 },
             },
         )
@@ -216,13 +235,18 @@ async def test_week_plan_uses_live_contract_and_keeps_choices() -> None:
     client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
     document = await execute_command(
         client,
-        parse_command("周计划 1 --汤 0 --忌口 海鲜 --种子 week"),
+        parse_command("周计划 1 --荤 1,2 --汤 0 --早餐 1 --人数 4 --忌口 海鲜 --种子 week"),
         Config(),
     )
     assert document.layout == "week_plan"
-    assert [choice.identifier for choice in document.recipe_choices] == ["m", "v"]
+    assert [choice.identifier for choice in document.recipe_choices] == ["m", "v", "b"]
     assert requests[0].url.path == "/api/plan/week"
     assert requests[0].url.params["exclude_tags"] == "seafood"
+    assert requests[0].url.params["meat"] == "1,2"
+    assert requests[0].url.params["breakfast"] == "1"
+    assert requests[0].url.params["with_shopping_list"] == "1"
+    assert requests[0].url.params["servings"] == "4"
+    assert document.embedded_shopping_list is not None
 
 
 @pytest.mark.asyncio
@@ -273,6 +297,95 @@ async def test_shopping_list_resolves_exact_titles_then_posts() -> None:
     assert requests[-1].method == "POST"
     assert requests[-1].url.params["ids"] == f"{'a' * 10},{'b' * 10}"
     assert requests[-1].url.params["servings"] == "4"
+
+
+@pytest.mark.asyncio
+async def test_detail_bundle_fetches_full_recipes_and_matching_shopping_list() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.startswith("/api/recipes/"):
+            identifier = request.url.path.rsplit("/", 1)[-1]
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "id": identifier,
+                        "title": f"菜谱 {identifier}",
+                        "ingredients": [],
+                        "tools": [],
+                        "steps": [],
+                    }
+                },
+            )
+        assert request.url.path == "/api/shopping-list"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "items": [],
+                    "recipes": [
+                        {"id": "first", "title": "第一道菜"},
+                        {"id": "second", "title": "第二道菜"},
+                    ],
+                    "not_found": [],
+                },
+                "meta": {"servings": 4},
+            },
+        )
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    documents = await fetch_detail_bundle_documents(
+        client,
+        [RecipeListItem("first", "第一道菜"), RecipeListItem("second", "第二道菜")],
+        image_mode="server",
+        servings=4,
+        concurrency=2,
+    )
+
+    assert [document.title for document in documents] == [
+        "菜谱 first",
+        "菜谱 second",
+        "七七采购清单",
+    ]
+    assert requests[-1].method == "POST"
+    assert requests[-1].url.params["ids"] == "first,second"
+    assert requests[-1].url.params["servings"] == "4"
+
+
+@pytest.mark.asyncio
+async def test_detail_bundle_reuses_embedded_week_shopping_list() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path == "/api/recipes/first"
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "id": "first",
+                    "title": "第一道菜",
+                    "ingredients": [],
+                    "tools": [],
+                    "steps": [],
+                }
+            },
+        )
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    embedded = Document("上游内嵌采购清单", layout="shopping_list")
+    documents = await fetch_detail_bundle_documents(
+        client,
+        [RecipeListItem("first", "第一道菜")],
+        image_mode="server",
+        servings=4,
+        shopping_document=embedded,
+    )
+
+    assert documents[-1] is embedded
+    assert [request.method for request in requests] == ["GET"]
 
 
 @pytest.mark.asyncio

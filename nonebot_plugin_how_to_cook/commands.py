@@ -214,6 +214,18 @@ _MENU_OPTIONS = {
     "--素菜": "vegetable",
     "--soup": "soup",
     "--汤": "soup",
+    "--breakfast": "breakfast",
+    "--早餐": "breakfast",
+    "--早饭": "breakfast",
+    "--drink": "drink",
+    "--饮料": "drink",
+    "--饮品": "drink",
+    "--dessert": "dessert",
+    "--甜品": "dessert",
+    "--甜点": "dessert",
+    "--servings": "servings",
+    "--份数": "servings",
+    "--人数": "servings",
     "--max-difficulty": "max_difficulty",
     "--最高难度": "max_difficulty",
     "--exclude-tags": "exclude_tags",
@@ -290,6 +302,23 @@ _DIET_TAG_ALIASES = {
     "gluten": "gluten",
     "麸质": "gluten",
     "面筋": "gluten",
+}
+
+_PLAN_SLOTS = {
+    "meat": "荤菜数量",
+    "vegetable": "素菜数量",
+    "soup": "汤数量",
+    "breakfast": "早餐数量",
+    "drink": "饮料数量",
+    "dessert": "甜品数量",
+}
+_PLAN_SLOT_DEFAULTS = {
+    "meat": 1,
+    "vegetable": 1,
+    "soup": 1,
+    "breakfast": 0,
+    "drink": 0,
+    "dessert": 0,
 }
 
 
@@ -418,6 +447,48 @@ def _normalize_diet_options(params: dict[str, Any]) -> dict[str, Any]:
     return params
 
 
+def _parse_plan_slot(value: str, *, label: str, daily: bool) -> int | str:
+    """Validate one plan slot while preserving the API's daily-cycle syntax."""
+
+    normalized = value.replace("，", ",")
+    parts = normalized.split(",")
+    if not daily and len(parts) > 1:
+        raise CommandError(f"配餐的{label}必须是 0 到 3 的整数")
+    if daily and len(parts) > 14:
+        raise CommandError(f"{label}的逐日序列最多写 14 项")
+    numbers: list[int] = []
+    for part in parts:
+        if not part or not part.isdigit():
+            suffix = "或逗号分隔序列（如 1,2,1）" if daily else ""
+            raise CommandError(f"{label}必须是 0 到 3 的整数{suffix}")
+        number = int(part)
+        if not 0 <= number <= 3:
+            raise CommandError(f"{label}每项必须在 0 到 3 之间")
+        numbers.append(number)
+    if len(numbers) == 1:
+        return numbers[0]
+    return ",".join(str(number) for number in numbers)
+
+
+def _normalize_plan_slots(params: dict[str, Any], *, daily: bool) -> dict[str, Any]:
+    for key, label in _PLAN_SLOTS.items():
+        if key in params:
+            params[key] = _parse_plan_slot(str(params[key]), label=label, daily=daily)
+    return params
+
+
+def _slot_has_any(value: Any) -> bool:
+    if isinstance(value, int):
+        return value > 0
+    return any(int(part) > 0 for part in str(value).split(","))
+
+
+def _plan_has_any_slot(params: dict[str, Any]) -> bool:
+    return any(
+        _slot_has_any(params.get(key, default)) for key, default in _PLAN_SLOT_DEFAULTS.items()
+    )
+
+
 def _parse_generic(tokens: list[str]) -> tuple[str, dict[str, str]]:
     if not tokens:
         raise CommandError("请提供接口路径，例如：接口 recipes q=红烧肉")
@@ -525,14 +596,13 @@ def parse_command(text: str) -> ParsedCommand:
         params = _typed_options(
             raw_options,
             integer_rules={
-                "meat": (0, 3, "荤菜数量"),
-                "vegetable": (0, 3, "素菜数量"),
-                "soup": (0, 3, "汤数量"),
                 "max_difficulty": (1, 5, "最高难度"),
+                "servings": (1, 100, "份数"),
             },
         )
-        if all(params.get(key) == 0 for key in ("meat", "vegetable", "soup")):
-            raise CommandError("荤菜、素菜和汤不能同时为 0")
+        params = _normalize_plan_slots(params, daily=False)
+        if not _plan_has_any_slot(params):
+            raise CommandError("荤菜、素菜、汤、早餐、饮料和甜品不能同时为 0")
         return ParsedCommand(
             action,
             params=_normalize_diet_options(params),
@@ -549,14 +619,13 @@ def parse_command(text: str) -> ParsedCommand:
             raw_options,
             integer_rules={
                 "days": (1, 14, "计划天数"),
-                "meat": (0, 3, "每日荤菜数量"),
-                "vegetable": (0, 3, "每日素菜数量"),
-                "soup": (0, 3, "每日汤数量"),
                 "max_difficulty": (1, 5, "最高难度"),
+                "servings": (1, 100, "份数"),
             },
         )
-        if all(params.get(key) == 0 for key in ("meat", "vegetable", "soup")):
-            raise CommandError("每日荤菜、素菜和汤不能同时为 0")
+        params = _normalize_plan_slots(params, daily=True)
+        if not _plan_has_any_slot(params):
+            raise CommandError("每日荤菜、素菜、汤、早餐、饮料和甜品不能同时为 0")
         return ParsedCommand(
             action,
             params=_normalize_diet_options(params),

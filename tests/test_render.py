@@ -146,7 +146,7 @@ def test_menu_and_stats_cards_have_specialized_layouts() -> None:
     assert 'class="menu-groups"' in menu_html
     assert menu_html.count('class="recipe-item"') == 3
     assert "荤菜与水产" in menu_html
-    assert "这桌菜可以继续点开看做法" in menu_html
+    assert "六类餐食已经按需搭好" in menu_html
 
     stats = stats_document(
         {
@@ -191,7 +191,7 @@ def test_week_plan_and_shopping_cards_have_specialized_layouts() -> None:
     plan_html, _ = renderer.build_html(plan, theme="light", now=now)
     assert 'class="week-days"' in plan_html
     assert plan_html.count('class="plan-item"') == 3
-    assert "发送“购物清单”汇总整周用料" in plan_html
+    assert "发送“第1天”查看当天详情" in plan_html
     assert "/assets/m.jpg" in plan_html
 
     shopping = shopping_list_document(

@@ -1,5 +1,6 @@
 import struct
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -7,6 +8,7 @@ import pytest
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, Message
 from nonebot.adapters.onebot.v11.event import Sender
 
+from nonebot_plugin_how_to_cook import delivery as delivery_module
 from nonebot_plugin_how_to_cook.api import HowToCookClient
 from nonebot_plugin_how_to_cook.config import Config
 from nonebot_plugin_how_to_cook.content import Document, Section
@@ -70,12 +72,94 @@ async def test_combined_mode_sends_summary_then_details() -> None:
 
 
 @pytest.mark.asyncio
-async def test_forward_mode_uses_forward_api() -> None:
+async def test_forward_mode_uses_forward_api(monkeypatch) -> None:
+    monkeypatch.setattr(
+        delivery_module,
+        "import_module",
+        lambda _name: (_ for _ in ()).throw(ModuleNotFoundError("src")),
+    )
     bot = FakeBot()
     document = Document("菜谱", sections=[Section("步骤", "做饭")])
     outcome = await _delivery().deliver(bot, _event(), document, mode="forward")  # type: ignore[arg-type]
     assert outcome.messages == 1
     assert bot.api_calls[0][0] == "send_group_forward_msg"
+
+
+@pytest.mark.asyncio
+async def test_forward_mode_reuses_qiqi_combined_sender_when_available(monkeypatch) -> None:
+    captured = {"prepared": 0}
+
+    async def prepare(message: Message) -> Message:
+        captured["prepared"] += 1
+        return message
+
+    async def send_combined(bot, event, message) -> None:
+        captured.update({"bot": bot, "event": event, "message": message})
+
+    async def lower_level_must_not_run(**_kwargs) -> None:
+        raise AssertionError("the unified QIQI sender should own dispatch")
+
+    monkeypatch.setattr(
+        delivery_module,
+        "import_module",
+        lambda _name: SimpleNamespace(
+            prepare_exact_delivery_message=prepare,
+            send_combined_message=send_combined,
+            send_group_forward_msg=lower_level_must_not_run,
+        ),
+    )
+    bot = FakeBot()
+    event = _event()
+    outcome = await _delivery().deliver(  # type: ignore[arg-type]
+        bot,
+        event,
+        Document("菜谱", sections=[Section("步骤", "做饭")]),
+        mode="forward",
+    )
+
+    assert outcome.messages == 1
+    assert captured["prepared"] == 1
+    assert captured["bot"] is bot
+    assert captured["event"] is event
+    assert captured["message"]["type"] == "forward"
+    assert len(captured["message"]["content"]) == 1
+    assert bot.api_calls == []
+
+
+@pytest.mark.asyncio
+async def test_forward_gallery_renders_recipe_cards_and_shopping_list(monkeypatch) -> None:
+    delivery = _delivery()
+    fake_png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
+    delivery.renderer.render = AsyncMock(return_value=(fake_png, "light"))  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        delivery_module,
+        "import_module",
+        lambda _name: (_ for _ in ()).throw(ModuleNotFoundError("src")),
+    )
+    bot = FakeBot()
+    documents = [
+        Document("宫保鸡丁"),
+        Document("炒青菜"),
+        Document("采购清单", layout="shopping_list"),
+    ]
+
+    outcome = await delivery.deliver_forward_gallery(  # type: ignore[arg-type]
+        bot,
+        _event(),
+        documents,
+        title="今日配餐",
+        theme="light",
+    )
+
+    assert outcome.mode == "forward"
+    assert outcome.messages == 1
+    assert bot.api_calls[0][0] == "send_group_forward_msg"
+    nodes = bot.api_calls[0][1]["messages"]
+    assert len(nodes) == 4
+    assert "2 道完整菜谱卡" in str(nodes[0])
+    assert "宫保鸡丁" in str(nodes[1])
+    assert "购物清单" in str(nodes[-1])
+    assert all("image" in str(node) for node in nodes[1:])
 
 
 @pytest.mark.asyncio

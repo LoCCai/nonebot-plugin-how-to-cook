@@ -4,6 +4,7 @@ import pytest
 
 from nonebot_plugin_how_to_cook import interaction
 from nonebot_plugin_how_to_cook.interaction import (
+    DetailBundleSelection,
     ShoppingListSelection,
     parse_recipe_selection,
     parse_selection,
@@ -25,6 +26,24 @@ def test_plan_selection_can_request_a_scaled_shopping_list() -> None:
     assert parse_selection("购物清单 4人", 21, allow_shopping_list=True) == ShoppingListSelection(4)
     assert parse_selection("购物清单 101", 21, allow_shopping_list=True) is None
     assert parse_selection("购物清单", 21) is None
+
+
+def test_plan_selection_can_request_forward_detail_bundles() -> None:
+    options = {
+        "allow_detail_bundle": True,
+        "detail_group_count": 7,
+        "allow_full_bundle": True,
+    }
+    assert parse_selection("合并详情", 21, **options) == DetailBundleSelection()
+    assert parse_selection("全部详情 4人", 21, **options) == DetailBundleSelection(servings=4)
+    assert parse_selection("第1天", 21, **options) == DetailBundleSelection(group_index=0)
+    assert parse_selection("7日 6份", 21, **options) == DetailBundleSelection(
+        group_index=6,
+        servings=6,
+    )
+    assert parse_selection("第8天", 21, **options) is None
+    assert parse_selection("全部详情 101", 21, **options) is None
+    assert parse_selection("全部详情", 21, allow_detail_bundle=True) is None
 
 
 @pytest.mark.asyncio

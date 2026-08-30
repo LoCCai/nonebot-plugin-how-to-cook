@@ -5,6 +5,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 
 from nonebot import logger
@@ -99,29 +100,83 @@ class MessageDelivery:
             logger.warning(f"HowToCook 成品图下载失败，继续发送文本：{exc.code} {exc.message}")
             return None
 
-    async def _send_forward(
+    async def _prepare_forward_contents(
+        self,
+        contents: list[Message],
+        module: object | None,
+    ) -> list[Message]:
+        """Materialize inline images with QIQI's sender when it is available."""
+
+        try:
+            if module is None:
+                return contents
+            prepare = module.prepare_exact_delivery_message
+        except Exception as exc:
+            logger.debug(f"QIQI 合并消息图片物化不可用：{type(exc).__name__}")
+            return contents
+
+        prepared: list[Message] = []
+        for content in contents:
+            try:
+                prepared.append(await prepare(content))
+            except Exception as exc:
+                logger.warning(f"QIQI 合并消息图片物化失败，保留原始消息段：{type(exc).__name__}")
+                prepared.append(content)
+        return prepared
+
+    async def _dispatch_forward(
         self,
         bot: Bot,
         event: MessageEvent,
-        document: Document,
-        cover: bytes | None,
+        contents: list[Message],
     ) -> int:
-        chunks = split_text(document.full_text(), self.config.how_to_cook_forward_node_size)
-        if not chunks:
-            chunks = [document.summary_text()]
-        messages: list[MessageSegment] = []
-        author_id = int(bot.self_id) if str(bot.self_id).isdigit() else int(event.user_id)
-        for index, chunk in enumerate(chunks):
-            content = Message(MessageSegment.text(chunk))
-            if index == 0 and cover:
-                content.append(MessageSegment.image(cover))
-            messages.append(
-                MessageSegment.node_custom(
-                    user_id=author_id,
-                    nickname=self.config.how_to_cook_forward_name,
-                    content=content,
+        try:
+            message_fx = import_module("src.utils.message_fx")
+        except Exception as exc:
+            logger.debug(f"QIQI 合并消息发送组件不可用：{type(exc).__name__}")
+            message_fx = None
+        prepared = await self._prepare_forward_contents(contents, message_fx)
+        if message_fx is not None:
+            combined_sender = getattr(message_fx, "send_combined_message", None)
+            if combined_sender is not None:
+                await combined_sender(
+                    bot,
+                    event,
+                    {"type": "forward", "content": prepared},
                 )
+                return 1
+
+            # Compatibility with older QIQI versions that predate the unified
+            # sender but already exposed the forward helpers.
+            sender_name = (
+                "send_group_forward_msg"
+                if isinstance(event, GroupMessageEvent)
+                else "send_private_forward_msg"
             )
+            sender = getattr(message_fx, sender_name, None)
+            if sender is not None:
+                common = {
+                    "bot": bot,
+                    "uin": str(bot.self_id),
+                    "msgs": prepared,
+                    "name": self.config.how_to_cook_forward_name,
+                    "timeout": self.config.how_to_cook_forward_timeout_seconds,
+                }
+                if isinstance(event, GroupMessageEvent):
+                    await sender(gid=str(event.group_id), **common)
+                else:
+                    await sender(uid=str(event.user_id), **common)
+                return 1
+
+        author_id = int(bot.self_id) if str(bot.self_id).isdigit() else int(event.user_id)
+        messages = [
+            MessageSegment.node_custom(
+                user_id=author_id,
+                nickname=self.config.how_to_cook_forward_name,
+                content=content,
+            )
+            for content in prepared
+        ]
         try:
             if isinstance(event, GroupMessageEvent):
                 await bot.call_api(
@@ -136,17 +191,79 @@ class MessageDelivery:
                     messages=messages,
                 )
         except ActionFailed:
-            # The platform explicitly rejected the forward message, so a normal
-            # message fallback cannot duplicate an accepted forward.
-            count = 0
-            for index, chunk in enumerate(chunks):
-                message = Message(MessageSegment.text(chunk))
-                if index == 0 and cover:
-                    message.append(MessageSegment.image(cover))
-                await bot.send(event, message)
-                count += 1
-            return count
+            # A rejected merged forward is known not to have been accepted, so
+            # sending its already-prepared nodes normally cannot duplicate it.
+            for content in prepared:
+                await bot.send(event, content)
+            return len(prepared)
         return 1
+
+    async def _send_forward(
+        self,
+        bot: Bot,
+        event: MessageEvent,
+        document: Document,
+        cover: bytes | None,
+    ) -> int:
+        chunks = split_text(document.full_text(), self.config.how_to_cook_forward_node_size)
+        if not chunks:
+            chunks = [document.summary_text()]
+        contents: list[Message] = []
+        for index, chunk in enumerate(chunks):
+            content = Message(MessageSegment.text(chunk))
+            if index == 0 and cover:
+                content.append(MessageSegment.image(cover))
+            contents.append(content)
+        return await self._dispatch_forward(bot, event, contents)
+
+    async def deliver_forward_gallery(
+        self,
+        bot: Bot,
+        event: MessageEvent,
+        documents: list[Document],
+        *,
+        title: str,
+        theme: ThemeMode | None = None,
+    ) -> DeliveryOutcome:
+        """Render multiple complete documents as image nodes in one forward."""
+
+        recipe_count = sum(document.layout != "shopping_list" for document in documents)
+        contents = [
+            Message(
+                MessageSegment.text(
+                    f"🍽️ {title}\n共 {recipe_count} 道完整菜谱卡，末尾附对应购物清单。"
+                )
+            )
+        ]
+        for index, document in enumerate(documents, 1):
+            cover = await self._cover(document)
+            label = "🛒 购物清单" if document.layout == "shopping_list" else f"🍳 {document.title}"
+            try:
+                image, _selected_theme = await self.renderer.render(
+                    document,
+                    theme=theme,
+                    cover_bytes=cover,
+                )
+            except Exception:
+                logger.exception(f"HowToCook 合并详情卡渲染失败，改用文本节点：{document.title}")
+                chunks = split_text(
+                    document.full_text(),
+                    self.config.how_to_cook_forward_node_size,
+                ) or [document.summary_text()]
+                for chunk_index, chunk in enumerate(chunks):
+                    content = Message(
+                        MessageSegment.text(f"{label}\n{chunk}" if chunk_index == 0 else chunk)
+                    )
+                    if chunk_index == 0 and cover:
+                        content.append(MessageSegment.image(cover))
+                    contents.append(content)
+                continue
+            content = Message(MessageSegment.text(f"{index}. {label}\n"))
+            content.append(MessageSegment.image(image))
+            contents.append(content)
+
+        count = await self._dispatch_forward(bot, event, contents)
+        return DeliveryOutcome(mode="forward", messages=count)
 
     async def _send_combined(
         self,

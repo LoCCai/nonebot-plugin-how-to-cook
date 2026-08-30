@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 
 from .api import HowToCookClient
@@ -90,6 +91,45 @@ async def fetch_shopping_list_document(
 ) -> Document:
     result = await client.shopping_list(identifiers, servings=servings)
     return shopping_list_document(result.data, result.meta, asset_base_url=client.origin)
+
+
+async def fetch_detail_bundle_documents(
+    client: HowToCookClient,
+    choices: list[RecipeListItem],
+    *,
+    image_mode: str,
+    servings: int | None = None,
+    concurrency: int = 3,
+    shopping_document: Document | None = None,
+) -> list[Document]:
+    """Fetch full recipe cards and the matching shopping list in stable order."""
+
+    if not choices:
+        raise ValueError("合并详情至少需要一道菜")
+    if len(choices) > 50:
+        raise ValueError("合并详情一次最多处理 50 道菜")
+
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+
+    async def fetch_detail(choice: RecipeListItem) -> Document:
+        async with semaphore:
+            return await fetch_selection_document(
+                client,
+                choice,
+                image_mode=image_mode,
+            )
+
+    detail_tasks = [fetch_detail(choice) for choice in choices]
+    if shopping_document is not None:
+        details = await asyncio.gather(*detail_tasks)
+        return [*details, shopping_document]
+    shopping_task = fetch_shopping_list_document(
+        client,
+        [choice.identifier for choice in choices],
+        servings=servings,
+    )
+    resolved = await asyncio.gather(*detail_tasks, shopping_task)
+    return list(resolved)
 
 
 _STABLE_RECIPE_ID = re.compile(r"[0-9a-f]{10}\Z", re.I)
@@ -202,6 +242,8 @@ async def execute_command(
         return await _expand_single_choice(client, document, image_mode=image_mode)
     if command.action == "menu":
         params = dict(command.params)
+        # servings controls the linked shopping list, not GET /api/menu itself.
+        params.pop("servings", None)
         params.setdefault("image_mode", image_mode)
         result = await client.menu(**params)
         document = menu_document(result.data, result.meta, asset_base_url=asset_base)
@@ -209,6 +251,9 @@ async def execute_command(
     if command.action == "week_plan":
         params = dict(command.params)
         params.setdefault("days", 7)
+        # The upgraded endpoint can aggregate the whole plan without the
+        # standalone shopping-list endpoint's 50-recipe limit.
+        params.setdefault("with_shopping_list", 1)
         params.setdefault("image_mode", image_mode)
         result = await client.week_plan(**params)
         document = week_plan_document(result.data, result.meta, asset_base_url=asset_base)

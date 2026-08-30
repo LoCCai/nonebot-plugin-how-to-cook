@@ -63,12 +63,18 @@ def test_random_menu_and_related_commands() -> None:
         "count": 3,
     }
 
-    menu = parse_command("配餐 --荤 2 --素 0 --汤 1 --最高难度 3 --种子 family")
+    menu = parse_command(
+        "配餐 --荤 2 --素 0 --汤 1 --早餐 1 --饮料 1 --甜品 1 --人数 4 --最高难度 3 --种子 family"
+    )
     assert menu.action == "menu"
     assert menu.params == {
         "meat": 2,
         "vegetable": 0,
         "soup": 1,
+        "breakfast": 1,
+        "drink": 1,
+        "dessert": 1,
+        "servings": 4,
         "max_difficulty": 3,
         "seed": "family",
     }
@@ -80,12 +86,19 @@ def test_random_menu_and_related_commands() -> None:
 
 
 def test_week_plan_shopping_list_and_diet_filters() -> None:
-    week = parse_command("周计划 5 --荤 1 --素 1 --汤 0 --最高难度 3 --忌口 海鲜,花生 --种子 qiqi")
+    week = parse_command(
+        "周计划 5 --荤 1,2,1 --素 1 --汤 0 --早餐 1,0 --饮品 1 --甜点 0,1 "
+        "--人数 6 --最高难度 3 --忌口 海鲜,花生 --种子 qiqi"
+    )
     assert week.action == "week_plan"
     assert week.params == {
-        "meat": 1,
+        "meat": "1,2,1",
         "vegetable": 1,
         "soup": 0,
+        "breakfast": "1,0",
+        "drink": 1,
+        "dessert": "0,1",
+        "servings": 6,
         "max_difficulty": 3,
         "exclude_tags": "seafood,peanut",
         "seed": "qiqi",
@@ -160,12 +173,17 @@ def test_generic_api_parameters() -> None:
         "搜索 肉 --模式 未知",
         "随机 21",
         "配餐 --荤 0 --素 0 --汤 0",
+        "配餐 --荤 0 --素 0 --汤 0 --早餐 0 --饮料 0 --甜品 0",
+        "配餐 --早餐 1,2",
         "食材",
         "食材 鸡蛋 --匹配 不知道",
         "全局搜索",
         "统计 extra",
         "周计划 15",
         "周计划 --荤 0 --素 0 --汤 0",
+        "周计划 --荤 0 --素 0 --汤 0 --早餐 0 --饮料 0 --甜品 0",
+        "周计划 --荤 1,4,1",
+        "周计划 --早餐 1,,0",
         "周计划 --忌口 不认识",
         "购物清单",
         "购物清单 宫保鸡丁 --份数 0",

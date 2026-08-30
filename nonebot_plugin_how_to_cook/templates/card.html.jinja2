@@ -656,7 +656,7 @@
           {% if document.recipe_choices %}
             <div class="selection-guide">
               <span class="guide-mark">#</span>
-              <span><strong>这桌菜可以继续点开看做法</strong><br />发送菜名前的序号即可查看完整菜谱，也可以发送“取消”结束选择。</span>
+              <span><strong>六类餐食已经按需搭好</strong><br />发送序号查看单道做法；发送“购物清单”只看采购明细，或发送“合并详情”在一条合并消息中查看整桌完整菜谱卡与清单。</span>
             </div>
           {% endif %}
           <div class="menu-groups">
@@ -678,7 +678,11 @@
         <article class="week-content">
           <div class="selection-guide">
             <span class="guide-mark">7</span>
-            <span><strong>一周菜单已经排好</strong><br />发送菜谱序号查看完整做法；发送“购物清单”汇总整周用料，后接数字可指定人数。</span>
+            {% if document.shopping_recipe_ids %}
+              <span><strong>逐日六类菜单已经排好</strong><br />发送菜谱序号查看单道做法；发送“购物清单”使用上游内嵌整周清单，发送“第1天”查看当天详情，或发送“全部详情”合并整周。</span>
+            {% else %}
+              <span><strong>一周菜单已经排好</strong><br />发送菜谱序号查看单道做法；本计划菜谱过多，请发送“第1天”按天获取完整菜谱卡与当天购物清单。</span>
+            {% endif %}
           </div>
           <div class="week-days">
             {% for group in document.choice_groups %}

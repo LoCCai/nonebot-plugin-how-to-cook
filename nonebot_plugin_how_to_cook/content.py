@@ -94,6 +94,8 @@ class Document:
     charts: list[ChartGroup] = field(default_factory=list)
     shopping_items: list[ShoppingListItem] = field(default_factory=list)
     shopping_recipe_ids: list[str] = field(default_factory=list)
+    embedded_shopping_list: Document | None = None
+    shopping_servings: int | None = None
 
     def summary_text(self) -> str:
         lines = [f"🍳 {self.title}"]
@@ -342,26 +344,33 @@ def _ingredient_lines(items: Any) -> str:
     lines: list[str] = []
     for item in items:
         if not isinstance(item, dict):
-            lines.append(f"• {_text(item)}")
+            lines.append(f"- {_text(item)}")
             continue
         raw = item.get("raw")
         scaled_state = item.get("scaled") if "scaled" in item else None
-        if raw and scaled_state is None:
-            lines.append(f"• {raw}")
-            continue
         name = _text(item.get("name"))
         quantity = _text(item.get("quantity"), "")
         note = _text(item.get("note"), "")
         optional = "（可选）" if item.get("optional") else ""
         suffix = " ".join(part for part in (quantity, note) if part)
         original = _text(item.get("quantity_original"), "")
+        annotations: list[str] = []
+        if item.get("per_serving"):
+            baseline = original or quantity
+            annotations.append(f"每份基准 {baseline}" if baseline else "按每份计量")
+        quantity_note = _text(item.get("quantity_note"), "")
+        if quantity_note:
+            annotations.append(f"换算说明 {quantity_note}")
         if scaled_state is True and original and original != quantity:
-            suffix += f"（原用量 {original}）"
+            if not item.get("per_serving"):
+                annotations.append(f"原用量 {original}")
         elif scaled_state is False:
-            suffix += "（按原文保留，无法自动换算）"
+            annotations.append("按原文保留，无法自动换算")
+        if annotations:
+            suffix += f"（{'；'.join(annotations)}）"
         if not suffix and raw:
             suffix = str(raw)
-        lines.append(f"• {name}{optional}{f'：{suffix}' if suffix else ''}")
+        lines.append(f"- {name}{optional}{f'：{suffix}' if suffix else ''}")
     return "\n".join(lines) or "暂无结构化原料信息"
 
 
@@ -661,17 +670,53 @@ def aggregate_search_document(
     )
 
 
+_PLAN_SLOT_DEFINITIONS = [
+    ("meat", "荤菜与水产", "🥩"),
+    ("vegetable", "时蔬", "🥬"),
+    ("soup", "汤与粥", "🥣"),
+    ("breakfast", "早餐", "🌅"),
+    ("drink", "饮品", "🥤"),
+    ("dessert", "甜品", "🍰"),
+]
+
+
+def _slot_values(value: Any) -> list[int]:
+    if isinstance(value, list):
+        return [
+            int(item)
+            for item in value
+            if isinstance(item, (int, float, str)) and str(item).isdigit()
+        ]
+    if isinstance(value, (int, float)):
+        return [int(value)]
+    if isinstance(value, str):
+        return [int(item) for item in re.split(r"[,，]", value) if item.strip().isdigit()]
+    return []
+
+
+def _plan_slot_summary(raw_slots: dict[str, Any], *, daily: bool) -> str:
+    parts: list[str] = []
+    for key, title, _ in _PLAN_SLOT_DEFINITIONS:
+        values = _slot_values(raw_slots.get(key))
+        if not values or not any(values):
+            continue
+        label = "荤菜/水产" if key == "meat" else title
+        if daily and len(set(values)) > 1:
+            counts = "/".join(str(value) for value in values)
+            parts.append(f"{label}按天 {counts} 道")
+        elif daily:
+            parts.append(f"每天 {values[0]} 道{label}")
+        else:
+            parts.append(f"{values[0]} 道{label}")
+    return " + ".join(parts)
+
+
 def menu_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
     payload = data if isinstance(data, dict) else {}
-    definitions = [
-        ("meat", "荤菜与水产", "🥩"),
-        ("vegetable", "时蔬", "🥬"),
-        ("soup", "汤与粥", "🥣"),
-    ]
     choices: list[RecipeListItem] = []
     groups: list[ChoiceGroup] = []
     sections: list[Section] = []
-    for key, title, icon in definitions:
+    for key, title, icon in _PLAN_SLOT_DEFINITIONS:
         raw_items = payload.get(key) if isinstance(payload.get(key), list) else []
         group_items: list[RecipeListItem] = []
         for item in raw_items:
@@ -690,7 +735,9 @@ def menu_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Do
             )
         )
     unfilled = meta.get("unfilled") if isinstance(meta.get("unfilled"), list) else []
-    description = "一荤一素一汤已经替你搭好，也可以调整每类数量和最高难度。"
+    raw_slots = meta.get("slots") if isinstance(meta.get("slots"), dict) else {}
+    slot_summary = _plan_slot_summary(raw_slots, daily=False) or f"{len(choices)} 道菜"
+    description = f"本次按 {slot_summary} 搭好整桌，也可以调整每类数量和最高难度。"
     if unfilled:
         description += f" 候选池不足：{'、'.join(str(value) for value in unfilled)}。"
     excluded = _diet_labels(meta.get("exclude_tags"))
@@ -719,11 +766,6 @@ def menu_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Do
 def week_plan_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
     payload = data if isinstance(data, dict) else {}
     raw_days = payload.get("days") if isinstance(payload.get("days"), list) else []
-    definitions = [
-        ("meat", "荤菜", "🥩"),
-        ("vegetable", "素菜", "🥬"),
-        ("soup", "汤粥", "🥣"),
-    ]
     choices: list[RecipeListItem] = []
     groups: list[ChoiceGroup] = []
     sections: list[Section] = []
@@ -733,7 +775,7 @@ def week_plan_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) 
         day_number = int(raw_day.get("day") or fallback_day)
         day_items: list[RecipeListItem] = []
         text_lines: list[str] = []
-        for key, badge, icon in definitions:
+        for key, badge, icon in _PLAN_SLOT_DEFINITIONS:
             raw_items = raw_day.get(key) if isinstance(raw_day.get(key), list) else []
             titles: list[str] = []
             for item in raw_items:
@@ -756,15 +798,18 @@ def week_plan_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) 
         sections.append(Section(f"第 {day_number} 天", "\n".join(text_lines)))
 
     repeats = bool(meta.get("repeats"))
-    description = "按天搭配荤菜、素菜和汤粥，计划内菜谱默认不重复。"
+    raw_slots = meta.get("slots") if isinstance(meta.get("slots"), dict) else {}
+    slot_summary = _plan_slot_summary(raw_slots, daily=True) or "自定义菜谱"
+    description = f"当前按 {slot_summary} 生成，计划内菜谱默认不重复。"
     if repeats:
         description = "筛选后的候选池已用尽，计划中包含重复菜谱。"
+    unfilled = int(meta.get("unfilled") or 0)
+    if unfilled:
+        description += f" 候选池不足，仍有 {unfilled} 个槽位未填满。"
     excluded = _diet_labels(meta.get("exclude_tags"))
     if excluded:
         description += f" 已避开：{'、'.join(excluded)}。"
     shopping_ids = [choice.identifier for choice in choices]
-    if len(shopping_ids) > 50:
-        description += " 本计划超过购物清单单次 50 道上限，请减少天数或每日槽位后再汇总。"
     stats = [
         ("计划", f"{len(groups)} 天"),
         ("菜谱", f"{len(choices)} 道"),
@@ -772,6 +817,28 @@ def week_plan_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) 
     ]
     if meta.get("max_difficulty") is not None:
         stats.append(("最高难度", f"{meta['max_difficulty']} 星"))
+    embedded_shopping_list: Document | None = None
+    shopping_servings: int | None = None
+    raw_shopping = payload.get("shopping_list")
+    shopping_meta = meta.get("shopping_list")
+    if isinstance(raw_shopping, dict):
+        embedded_meta = dict(shopping_meta) if isinstance(shopping_meta, dict) else {}
+        embedded_meta.setdefault("requested", len(shopping_ids))
+        if meta.get("diet_tags_note") is not None:
+            embedded_meta.setdefault("diet_tags_note", meta["diet_tags_note"])
+        raw_servings = embedded_meta.get("servings")
+        shopping_servings = int(raw_servings) if raw_servings is not None else None
+        embedded_shopping_list = shopping_list_document(
+            raw_shopping,
+            embedded_meta,
+            asset_base_url=asset_base_url,
+        )
+        stats.append(("采购原料", f"{len(embedded_shopping_list.shopping_items)} 项"))
+    if len(shopping_ids) > 50:
+        if embedded_shopping_list is not None:
+            description += " 本计划超过独立清单接口的 50 道上限，已使用上游内嵌整周清单。"
+        else:
+            description += " 本计划超过独立清单接口的 50 道上限，暂时无法再次汇总。"
     return Document(
         title="七七一周吃什么",
         kicker="HOW TO COOK · WEEKLY PLAN",
@@ -784,6 +851,8 @@ def week_plan_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) 
         recipe_choices=choices,
         choice_groups=groups,
         shopping_recipe_ids=shopping_ids if len(shopping_ids) <= 50 else [],
+        embedded_shopping_list=embedded_shopping_list,
+        shopping_servings=shopping_servings,
     )
 
 
@@ -855,7 +924,10 @@ def shopping_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: s
     servings = meta.get("servings")
     description = f"已合并 {len(recipe_titles)} 道菜的同名原料与同单位用量。"
     if servings is not None:
-        description += f" 数值用量按 {servings} 人份线性换算。"
+        description += (
+            f" 数值用量按 {servings} 人份换算：公式型每份用量按人数计算，"
+            "其余数值量按菜谱基准比例调整。"
+        )
     description += " “适量”等无法计算的写法会原样保留。"
     stats = [
         ("菜谱", str(len(recipe_titles))),
@@ -1314,8 +1386,8 @@ def recipe_resource_document(
                     "份数换算说明",
                     (
                         f"目标 {meta['servings']} 人份；原菜谱按 {meta.get('base_servings', 2)} "
-                        f"人份计算，系数 {_text(meta.get('factor'))}。数值型用量按比例换算，"
-                        "“适量”与中文数量词等无法可靠计算的内容保留原文。"
+                        f"人份计算，静态量系数 {_text(meta.get('factor'))}。公式型每份量直接按"
+                        "目标人数换算，中文数量词会先规范化；“适量”等模糊写法保留原文。"
                     ),
                 )
             )
@@ -1422,8 +1494,11 @@ def help_document(*, asset_base_url: str) -> Document:
             "\n".join(
                 [
                     "• 做饭 随机 [数量] [--分类 soup] [--难度 2]",
-                    "• 做饭 配餐 [--荤 1 --素 1 --汤 1 --最高难度 3 --忌口 海鲜,花生]",
-                    "• 做饭 周计划 [天数] [--最高难度 3 --忌口 辣,海鲜]",
+                    "• 做饭 配餐 [--荤 1 --素 1 --汤 1 --早餐 1 --饮料 1 --甜品 1] [--人数 4]",
+                    "• 做饭 周计划 [天数] [--荤 1,2,1 --素 1 --汤 0 --早餐 1,0] [--人数 4]",
+                    "• 六类槽位均支持 0–3；周计划逗号序列会按天循环，如 1,2,1",
+                    "• 配餐后回复“合并详情 4人”：完整菜谱卡 + 整桌购物清单",
+                    "• 周计划后回复“第1天 4人”或“全部详情 4人”获取合并详情",
                     "• 配餐/周计划卡片后可回复“购物清单”或“购物清单 4”",
                     "• 做饭 购物清单 宫保鸡丁,炒滑蛋 [--份数 4]",
                     "• 做饭 食材 鸡蛋 西红柿 [--严格] [--数量 8]",

@@ -10,6 +10,14 @@ from nonebot_plugin_waiter import waiter
 
 _CANCEL_WORDS = {"取消", "算了", "退出", "cancel", "quit", "q"}
 _SHOPPING_RE = re.compile(r"^(?:购物清单|采购清单|买菜清单)(?:\s*(\d+)\s*(?:人份?|份)?)?$", re.I)
+_DETAIL_BUNDLE_RE = re.compile(
+    r"^(?:合并详情|整桌详情|套餐详情|全部详情)(?:\s*(\d+)\s*(?:人份?|份)?)?$",
+    re.I,
+)
+_DAY_BUNDLE_RE = re.compile(
+    r"^(?:第\s*)?(\d+)\s*(?:天|日)(?:\s*(\d+)\s*(?:人份?|份)?)?$",
+    re.I,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,12 +25,30 @@ class ShoppingListSelection:
     servings: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class DetailBundleSelection:
+    """Request rendered recipe details plus their shopping list in one forward."""
+
+    group_index: int | None = None
+    servings: int | None = None
+
+
+def _valid_servings(value: str | None) -> int | None:
+    if value is None:
+        return None
+    servings = int(value)
+    return servings if 1 <= servings <= 100 else -1
+
+
 def parse_selection(
     value: str,
     result_count: int,
     *,
     allow_shopping_list: bool = False,
-) -> int | ShoppingListSelection | None:
+    allow_detail_bundle: bool = False,
+    detail_group_count: int = 0,
+    allow_full_bundle: bool = False,
+) -> int | ShoppingListSelection | DetailBundleSelection | None:
     text = value.strip().casefold()
     if text in _CANCEL_WORDS:
         return -1
@@ -32,6 +58,18 @@ def parse_selection(
             servings = int(matched.group(1)) if matched.group(1) else None
             if servings is None or 1 <= servings <= 100:
                 return ShoppingListSelection(servings)
+            return None
+    if allow_detail_bundle:
+        matched = _DETAIL_BUNDLE_RE.fullmatch(text)
+        if matched and allow_full_bundle:
+            servings = _valid_servings(matched.group(1))
+            return DetailBundleSelection(servings=servings) if servings != -1 else None
+        matched = _DAY_BUNDLE_RE.fullmatch(text)
+        if matched and detail_group_count > 0:
+            group_index = int(matched.group(1)) - 1
+            servings = _valid_servings(matched.group(2))
+            if 0 <= group_index < detail_group_count and servings != -1:
+                return DetailBundleSelection(group_index=group_index, servings=servings)
             return None
     if not text.isdigit():
         return None
@@ -70,13 +108,21 @@ async def wait_for_selection(
     *,
     timeout: int,
     allow_shopping_list: bool = False,
-) -> int | ShoppingListSelection | None:
+    allow_detail_bundle: bool = False,
+    detail_group_count: int = 0,
+    allow_full_bundle: bool = False,
+) -> int | ShoppingListSelection | DetailBundleSelection | None:
     @waiter(waits=["message"], keep_session=True)
-    async def selection_waiter(reply: MessageEvent) -> int | ShoppingListSelection | None:
+    async def selection_waiter(
+        reply: MessageEvent,
+    ) -> int | ShoppingListSelection | DetailBundleSelection | None:
         return parse_selection(
             reply.get_plaintext(),
             result_count,
             allow_shopping_list=allow_shopping_list,
+            allow_detail_bundle=allow_detail_bundle,
+            detail_group_count=detail_group_count,
+            allow_full_bundle=allow_full_bundle,
         )
 
     return await selection_waiter.wait(timeout=timeout)

@@ -31,6 +31,8 @@ class Config(BaseModel):
     how_to_cook_message_chunk_size: int = Field(default=3200, ge=500, le=10000)
     how_to_cook_forward_node_size: int = Field(default=1800, ge=300, le=5000)
     how_to_cook_forward_name: str = "七七 · 今天吃什么"
+    how_to_cook_forward_timeout_seconds: int = Field(default=120, ge=10, le=300)
+    how_to_cook_bundle_fetch_concurrency: int = Field(default=3, ge=1, le=10)
 
     how_to_cook_theme: ThemeMode = "auto"
     how_to_cook_timezone: str = "Asia/Shanghai"
