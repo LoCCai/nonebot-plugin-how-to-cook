@@ -1,9 +1,12 @@
 import importlib
 import struct
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
+
+import pytest
 
 from nonebot_plugin_how_to_cook.config import Config
 from nonebot_plugin_how_to_cook.content import (
@@ -128,6 +131,72 @@ def test_png_dimensions() -> None:
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + struct.pack(">II", 920, 15001)
     assert png_dimensions(png) == (920, 15001)
     assert png_dimensions(b"not png") is None
+
+
+@pytest.mark.asyncio
+async def test_renderer_bounds_slow_images_without_networkidle_timeout(monkeypatch) -> None:
+    import nonebot_plugin_htmlrender
+
+    captured: dict[str, object] = {}
+
+    class FakePage:
+        async def set_content(self, html: str, **kwargs) -> None:
+            captured["html"] = html
+            captured["set_content"] = kwargs
+
+        async def evaluate(self, script: str, argument: float) -> dict[str, int]:
+            captured["evaluate_script"] = script
+            captured["evaluate_argument"] = argument
+            return {"total": 3, "pending": 1, "failed": 0}
+
+        async def wait_for_timeout(self, milliseconds: int) -> None:
+            captured["layout_wait"] = milliseconds
+
+        async def screenshot(self, **kwargs) -> bytes:
+            captured["screenshot"] = kwargs
+            return b"rendered-png"
+
+    @asynccontextmanager
+    async def fake_render_context(**kwargs):
+        captured["context"] = kwargs
+        yield FakePage()
+
+    monkeypatch.setattr(nonebot_plugin_htmlrender, "get_render_context", fake_render_context)
+    config = Config(
+        how_to_cook_render_timeout_seconds=75,
+        how_to_cook_render_image_wait_seconds=60,
+        how_to_cook_render_wait_ms=350,
+        how_to_cook_render_scale=1.25,
+    )
+    document = Document(
+        "慢图片菜谱",
+        article_markdown="![慢图片](/assets/slow.jpg)",
+        asset_base_url="http://cook.test",
+    )
+
+    image, theme = await CardRenderer(config).render(document, theme="dark")
+
+    assert image == b"rendered-png"
+    assert theme == "dark"
+    assert captured["set_content"] == {
+        "wait_until": "domcontentloaded",
+        "timeout": 75_000,
+    }
+    assert captured["evaluate_argument"] == 60_000
+    assert "document.images" in str(captured["evaluate_script"])
+    assert captured["layout_wait"] == 350
+    assert captured["screenshot"] == {
+        "full_page": True,
+        "type": "png",
+        "timeout": 75_000,
+    }
+    assert captured["context"] == {
+        "viewport": {"width": 920, "height": 10},
+        "device_scale_factor": 1.25,
+        "color_scheme": "dark",
+        "timezone_id": "Asia/Shanghai",
+        "base_url": "http://cook.test/",
+    }
 
 
 def test_menu_and_stats_cards_have_specialized_layouts() -> None:

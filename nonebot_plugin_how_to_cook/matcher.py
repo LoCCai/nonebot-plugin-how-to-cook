@@ -29,6 +29,34 @@ how_to_cook = on_command(
     block=True,
 )
 
+_active_selection_sessions: dict[str, object] = {}
+
+
+def _selection_session_key(bot: Bot, event: MessageEvent) -> str:
+    try:
+        session_id = event.get_session_id()
+    except Exception:
+        session_id = f"event:{id(event)}"
+    return f"{getattr(bot, 'self_id', 'unknown')}:{session_id}"
+
+
+def _claim_selection_session(bot: Bot, event: MessageEvent) -> tuple[str, object]:
+    key = _selection_session_key(bot, event)
+    token = object()
+    if key in _active_selection_sessions:
+        logger.debug("HowToCook 新请求已替代同一会话中的旧选择等待")
+    _active_selection_sessions[key] = token
+    return key, token
+
+
+def _selection_session_is_current(key: str, token: object) -> bool:
+    return _active_selection_sessions.get(key) is token
+
+
+def _release_selection_session(key: str, token: object) -> None:
+    if _selection_session_is_current(key, token):
+        _active_selection_sessions.pop(key, None)
+
 
 def _client() -> HowToCookClient:
     return HowToCookClient(
@@ -159,8 +187,14 @@ async def _build_and_deliver_bundle(
     )
 
 
-@how_to_cook.handle()
-async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = CommandArg()) -> None:
+async def _handle_how_to_cook(
+    bot: Bot,
+    event: MessageEvent,
+    args: Message,
+    *,
+    selection_key: str,
+    selection_token: object,
+) -> None:
     try:
         command = parse_command(args.extract_plain_text().strip())
         client = _client()
@@ -256,7 +290,14 @@ async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = Comm
             allow_full_bundle=allow_full_bundle,
         )
     except Exception:
-        logger.exception("HowToCook 等待菜谱序号失败")
+        if _selection_session_is_current(selection_key, selection_token):
+            logger.exception("HowToCook 等待菜谱序号失败")
+        else:
+            logger.debug("HowToCook 被替代的旧选择等待已结束")
+        return
+
+    if not _selection_session_is_current(selection_key, selection_token):
+        logger.info("HowToCook 已忽略被新请求替代的旧选择回复")
         return
 
     if selected is None:
@@ -364,3 +405,18 @@ async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = Comm
         mode=mode,
         theme=command.theme,
     )
+
+
+@how_to_cook.handle()
+async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = CommandArg()) -> None:
+    selection_key, selection_token = _claim_selection_session(bot, event)
+    try:
+        await _handle_how_to_cook(
+            bot,
+            event,
+            args,
+            selection_key=selection_key,
+            selection_token=selection_token,
+        )
+    finally:
+        _release_selection_session(selection_key, selection_token)

@@ -11,6 +11,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from markdown_it import MarkdownIt
 from markupsafe import Markup
+from nonebot import logger
 
 from .config import Config, ThemeMode
 from .content import Document
@@ -50,6 +51,37 @@ _VOID_TAGS = {"br", "hr", "img"}
 _BLOCKED_TAGS = {"script", "style", "iframe", "object", "embed", "form"}
 _SAFE_CLASS = re.compile(r"[A-Za-z0-9 _-]{1,120}\Z")
 _SAFE_STYLE = re.compile(r"text-align\s*:\s*(left|right|center)\s*;?\Z", re.I)
+_WAIT_FOR_IMAGES_SCRIPT = """
+async (timeoutMs) => {
+  const images = Array.from(document.images);
+  const waitForImage = (image) => new Promise((resolve) => {
+    if (image.complete) {
+      resolve();
+      return;
+    }
+    const done = () => resolve();
+    image.addEventListener("load", done, { once: true });
+    image.addEventListener("error", done, { once: true });
+  });
+
+  if (timeoutMs > 0 && images.some((image) => !image.complete)) {
+    let timeoutId = null;
+    await Promise.race([
+      Promise.all(images.map(waitForImage)),
+      new Promise((resolve) => {
+        timeoutId = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+
+  return {
+    total: images.length,
+    pending: images.filter((image) => !image.complete).length,
+    failed: images.filter((image) => image.complete && image.naturalWidth === 0).length,
+  };
+}
+"""
 
 
 def _safe_url(value: str) -> bool:
@@ -195,25 +227,44 @@ class CardRenderer:
         theme: ThemeMode | None = None,
         cover_bytes: bytes | None = None,
     ) -> tuple[bytes, str]:
-        from nonebot_plugin_htmlrender import render_html
+        from nonebot_plugin_htmlrender import get_render_context
 
         html, selected_theme = self.build_html(
             document,
             theme=theme,
             cover_bytes=cover_bytes,
         )
-        image = await render_html(
-            html,
-            wait=self.config.how_to_cook_render_wait_ms,
-            image_type="png",
-            device_scale_factor=self.config.how_to_cook_render_scale,
-            screenshot_timeout=self.config.how_to_cook_render_timeout_seconds * 1000,
-            full_page=True,
-            viewport={"width": self.config.how_to_cook_render_width, "height": 10},
-            color_scheme=selected_theme,
-            timezone_id=self.config.how_to_cook_timezone,
-            base_url=(document.asset_base_url.rstrip("/") + "/")
-            if document.asset_base_url
-            else None,
-        )
+        timeout_ms = self.config.how_to_cook_render_timeout_seconds * 1000
+        image_wait_ms = self.config.how_to_cook_render_image_wait_seconds * 1000
+        context_options: dict[str, object] = {
+            "viewport": {"width": self.config.how_to_cook_render_width, "height": 10},
+            "device_scale_factor": self.config.how_to_cook_render_scale,
+            "color_scheme": selected_theme,
+            "timezone_id": self.config.how_to_cook_timezone,
+        }
+        if document.asset_base_url:
+            context_options["base_url"] = document.asset_base_url.rstrip("/") + "/"
+
+        async with get_render_context(**context_options) as page:
+            # ``render_html(str)`` in htmlrender 0.7 defaults to ``networkidle`` and
+            # Playwright's implicit 30 s set_content timeout. A plan card can contain
+            # dozens of images, so one slow connection used to discard the whole card.
+            await page.set_content(
+                html,
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+            image_state = await page.evaluate(_WAIT_FOR_IMAGES_SCRIPT, image_wait_ms)
+            if isinstance(image_state, dict) and image_state.get("pending"):
+                logger.warning(
+                    "HowToCook 图片等待达到上限，保留已加载资源继续截图："
+                    f"pending={image_state['pending']}/{image_state.get('total', '?')}"
+                )
+            if self.config.how_to_cook_render_wait_ms:
+                await page.wait_for_timeout(self.config.how_to_cook_render_wait_ms)
+            image = await page.screenshot(
+                full_page=True,
+                type="png",
+                timeout=timeout_ms,
+            )
         return image, selected_theme

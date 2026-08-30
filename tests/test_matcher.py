@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from nonebot.adapters.onebot.v11 import Message
 
@@ -304,3 +306,82 @@ async def test_forward_mode_sends_plan_as_rich_bundle_immediately(monkeypatch) -
     assert calls[0][0] == choices
     assert calls[1][0] == bundle_documents
     assert calls[1][1]["title"] == "配餐 · 整桌详情"
+
+
+@pytest.mark.asyncio
+async def test_new_plan_supersedes_older_waiter_for_same_session(monkeypatch) -> None:
+    client = object()
+    delivery = object()
+    bot = object()
+    event = object()
+    plan = Document(
+        "配餐",
+        layout="menu",
+        recipe_choices=[
+            RecipeListItem("first", "第一道菜"),
+            RecipeListItem("second", "第二道菜"),
+        ],
+        shopping_recipe_ids=["first", "second"],
+    )
+    first_waiting = asyncio.Event()
+    both_waiting = asyncio.Event()
+    release_reply = asyncio.Event()
+    wait_count = 0
+    notices: list[str] = []
+    bundle_calls = 0
+    gallery_calls = 0
+
+    async def fake_execute(*_args):
+        return plan
+
+    async def fake_deliver(*_args, **_kwargs):
+        return True
+
+    async def fake_notice(_bot, _event, message, **_kwargs):
+        notices.append(message)
+
+    async def fake_wait(*_args, **_kwargs):
+        nonlocal wait_count
+        wait_count += 1
+        if wait_count == 1:
+            first_waiting.set()
+        elif wait_count == 2:
+            both_waiting.set()
+        await release_reply.wait()
+        return DetailBundleSelection()
+
+    async def fake_bundle(*_args, **_kwargs):
+        nonlocal bundle_calls
+        bundle_calls += 1
+        return [Document("第一道菜详情")]
+
+    async def fake_gallery(*_args, **_kwargs):
+        nonlocal gallery_calls
+        gallery_calls += 1
+        return True
+
+    monkeypatch.setattr(matcher, "_client", lambda: client)
+    monkeypatch.setattr(matcher, "execute_command", fake_execute)
+    monkeypatch.setattr(matcher, "MessageDelivery", lambda *_args: delivery)
+    monkeypatch.setattr(matcher, "_deliver_document", fake_deliver)
+    monkeypatch.setattr(matcher, "send_transient_notice", fake_notice)
+    monkeypatch.setattr(matcher, "wait_for_selection", fake_wait)
+    monkeypatch.setattr(matcher, "fetch_detail_bundle_documents", fake_bundle)
+    monkeypatch.setattr(matcher, "_deliver_forward_gallery", fake_gallery)
+
+    older = asyncio.create_task(
+        matcher.handle_how_to_cook(bot, event, Message("配餐"))  # type: ignore[arg-type]
+    )
+    await first_waiting.wait()
+    newer = asyncio.create_task(
+        matcher.handle_how_to_cook(bot, event, Message("配餐"))  # type: ignore[arg-type]
+    )
+    await both_waiting.wait()
+    release_reply.set()
+    await asyncio.gather(older, newer)
+
+    assert wait_count == 2
+    assert bundle_calls == 1
+    assert gallery_calls == 1
+    assert sum("正在生成整桌详情" in message for message in notices) == 1
+    assert matcher._active_selection_sessions == {}

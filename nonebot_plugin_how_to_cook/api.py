@@ -155,7 +155,7 @@ class HowToCookClient:
             timeout=self.timeout,
             follow_redirects=True,
             trust_env=trust_env,
-            headers={"User-Agent": "nonebot-plugin-how-to-cook/0.4.1"},
+            headers={"User-Agent": "nonebot-plugin-how-to-cook/0.4.2"},
         )
 
     async def _send_response(

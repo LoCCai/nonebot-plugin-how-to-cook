@@ -41,7 +41,8 @@ class Config(BaseModel):
     how_to_cook_render_width: int = Field(default=920, ge=480, le=1600)
     how_to_cook_render_scale: float = Field(default=1.5, ge=1.0, le=3.0)
     how_to_cook_render_wait_ms: int = Field(default=200, ge=0, le=10000)
-    how_to_cook_render_timeout_seconds: float = Field(default=45.0, gt=1, le=180)
+    how_to_cook_render_timeout_seconds: float = Field(default=90.0, gt=1, le=300)
+    how_to_cook_render_image_wait_seconds: float = Field(default=90.0, ge=0, le=300)
 
     how_to_cook_large_image_bytes: int = Field(
         default=8 * 1024 * 1024,
