@@ -24,7 +24,7 @@ from .service import (
 
 how_to_cook = on_command(
     "做饭",
-    aliases={"怎么做", "今天吃什么"},
+    aliases={"怎么做"},
     priority=12,
     block=True,
 )
