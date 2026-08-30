@@ -6,7 +6,13 @@ from pathlib import Path
 from types import ModuleType
 
 from nonebot_plugin_how_to_cook.config import Config
-from nonebot_plugin_how_to_cook.content import Document, Section, recipe_list_document
+from nonebot_plugin_how_to_cook.content import (
+    Document,
+    Section,
+    menu_document,
+    recipe_list_document,
+    stats_document,
+)
 from nonebot_plugin_how_to_cook.render import CardRenderer, png_dimensions, sanitize_html_fragment
 
 
@@ -113,10 +119,45 @@ def test_search_card_uses_left_images_and_right_metadata() -> None:
     assert "15 分钟" in html
     assert "320 大卡" in html
     assert "★★" in html
-    assert "发送下方序号即可查看完整菜谱" in html
+    assert "发送下方序号即可查看完整内容" in html
 
 
 def test_png_dimensions() -> None:
     png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + struct.pack(">II", 920, 15001)
     assert png_dimensions(png) == (920, 15001)
     assert png_dimensions(b"not png") is None
+
+
+def test_menu_and_stats_cards_have_specialized_layouts() -> None:
+    renderer = CardRenderer(Config())
+    now = datetime(2026, 8, 28, 3, 30, tzinfo=timezone.utc)
+    menu = menu_document(
+        {
+            "meat": [{"id": "m", "title": "红烧肉"}],
+            "vegetable": [{"id": "v", "title": "油麦菜"}],
+            "soup": [{"id": "s", "title": "蛋花汤"}],
+        },
+        {"seed": "dinner", "unfilled": []},
+        asset_base_url="http://cook.test",
+    )
+    menu_html, _ = renderer.build_html(menu, theme="light", now=now)
+    assert 'class="menu-groups"' in menu_html
+    assert menu_html.count('class="recipe-item"') == 3
+    assert "荤菜与水产" in menu_html
+    assert "这桌菜可以继续点开看做法" in menu_html
+
+    stats = stats_document(
+        {
+            "recipes": 3,
+            "tips": 1,
+            "categories": [{"title": "荤菜", "count": 3}],
+            "difficulty": {"1": 1},
+            "methods": [{"name": "炒", "count": 2}],
+            "top_ingredients": [{"name": "盐", "count": 3}],
+        },
+        asset_base_url="http://cook.test",
+    )
+    stats_html, _ = renderer.build_html(stats, theme="dark", now=now)
+    assert stats_html.count('class="chart-card"') == 4
+    assert "分类分布" in stats_html
+    assert "--bar: 100.0%" in stats_html

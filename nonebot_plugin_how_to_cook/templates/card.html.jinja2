@@ -252,6 +252,19 @@
         font-weight: 800;
         line-height: 1.32;
       }
+      .recipe-heading { display: flex; gap: 10px; align-items: flex-start; }
+      .kind-badge {
+        flex: 0 0 auto;
+        margin-top: 3px;
+        padding: 3px 8px;
+        border: 1px solid color-mix(in srgb, var(--qiqi) 30%, transparent);
+        border-radius: 999px;
+        color: var(--qiqi);
+        background: var(--qiqi-soft);
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: .04em;
+      }
       .match-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 10px; }
       .match-tag {
         padding: 2px 8px;
@@ -274,6 +287,17 @@
       }
       .meta-label { color: var(--muted); font-size: 11px; font-weight: 700; }
       .meta-value { color: var(--ink); font-size: 12px; font-weight: 750; }
+      .recipe-note {
+        margin-top: 9px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .recipe-item[data-kind="tip"] .recipe-thumb {
+        background:
+          radial-gradient(circle at 68% 22%, rgba(255, 255, 255, .28), transparent 30%),
+          linear-gradient(145deg, var(--qiqi), #564398);
+      }
       .empty-state {
         padding: 50px 25px;
         border: 1px dashed var(--line);
@@ -283,6 +307,70 @@
         text-align: center;
       }
       .empty-icon { display: block; margin-bottom: 9px; font-size: 38px; }
+
+      .menu-content { padding: 31px 40px 39px; }
+      .menu-groups { display: grid; gap: 23px; }
+      .menu-group {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: color-mix(in srgb, var(--paper-soft) 84%, transparent);
+      }
+      .menu-group-title {
+        display: flex;
+        gap: 11px;
+        align-items: center;
+        padding: 13px 18px;
+        border-bottom: 1px solid var(--line);
+        background: var(--chip);
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 19px;
+        font-weight: 850;
+      }
+      .menu-group-icon {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 12px;
+        background: var(--paper);
+        font-size: 19px;
+      }
+      .menu-items { display: grid; gap: 12px; padding: 14px; }
+      .menu-items .recipe-item { min-height: 140px; border-radius: 17px; }
+      .menu-items .recipe-thumb,
+      .menu-items .recipe-thumb img,
+      .menu-items .recipe-placeholder { min-height: 140px; }
+
+      .stats-content { display: grid; gap: 22px; padding: 35px 40px 42px; }
+      .chart-card {
+        padding: 22px 24px 24px;
+        border: 1px solid var(--line);
+        border-radius: 21px;
+        background: var(--paper-soft);
+      }
+      .chart-title {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        font-family: "Noto Serif CJK SC", "Source Han Serif SC", serif;
+        font-size: 23px;
+        font-weight: 850;
+      }
+      .chart-title::before { display: none; content: none; }
+      .chart-description { margin: 4px 0 18px; color: var(--muted); font-size: 13px; }
+      .chart-bars { display: grid; gap: 11px; }
+      .chart-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 48px; gap: 12px; align-items: center; }
+      .chart-label { overflow: hidden; font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
+      .chart-track { height: 12px; overflow: hidden; border-radius: 999px; background: var(--code); }
+      .chart-fill {
+        display: block;
+        width: max(4px, var(--bar));
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--qiqi), var(--accent), var(--accent-2));
+      }
+      .chart-value { color: var(--muted); font-size: 12px; font-weight: 750; text-align: right; }
 
       .content { padding: 40px 48px 28px; }
       .content > :first-child { margin-top: 0; }
@@ -328,14 +416,47 @@
     </style>
   </head>
   <body>
+    {% macro choice_card(item) -%}
+      <section class="recipe-item" data-kind="{{ item.kind }}">
+        <div class="recipe-thumb">
+          <span class="recipe-index">{{ item.number }}</span>
+          {% if item.cover_url %}
+            <img src="{{ item.cover_url }}" alt="{{ item.cover_alt }}" />
+          {% else %}
+            <div class="recipe-placeholder">{% if item.kind == 'tip' %}📚{% else %}🍳{% endif %}</div>
+          {% endif %}
+        </div>
+        <div class="recipe-copy">
+          <div>
+            <div class="recipe-heading">
+              <span class="kind-badge">{{ item.badge }}</span>
+              <div class="recipe-title">{{ item.title }}</div>
+            </div>
+            {% if item.matched %}
+              <div class="match-row">
+                {% for matched in item.matched %}<span class="match-tag">命中 · {{ matched }}</span>{% endfor %}
+              </div>
+            {% endif %}
+          </div>
+          <div>
+            <div class="recipe-meta">
+              {% for label, value in item.metadata %}
+                <span class="meta-pill"><span class="meta-label">{{ label }}</span><span class="meta-value">{{ value }}</span></span>
+              {% endfor %}
+            </div>
+            {% if item.note %}<div class="recipe-note">{{ item.note }}</div>{% endif %}
+          </div>
+        </div>
+      </section>
+    {%- endmacro %}
     <main class="card">
-      <header class="hero{% if document.layout == 'recipe_list' %} hero-list{% endif %}">
+      <header class="hero{% if document.layout != 'article' %} hero-list{% endif %}">
         <div class="hero-copy">
           <div class="kicker">{{ document.kicker }}</div>
           <h1>{{ document.title }}</h1>
           {% if document.description %}<p class="description">{{ document.description }}</p>{% endif %}
         </div>
-        {% if cover_src and document.layout != 'recipe_list' %}
+        {% if cover_src and document.layout == 'article' %}
           <div class="cover"><img src="{{ cover_src }}" alt="{{ document.cover_alt }}" /></div>
         {% endif %}
       </header>
@@ -351,40 +472,57 @@
           {% if document.recipe_choices %}
             <div class="selection-guide">
               <span class="guide-mark">#</span>
-              <span><strong>发送下方序号即可查看完整菜谱</strong><br />仅接收本次搜索发起者的回复，也可以发送“取消”结束选择。</span>
+              <span><strong>发送下方序号即可查看完整内容</strong><br />菜谱会打开完整做法，技巧会打开全文；也可以发送“取消”结束选择。</span>
             </div>
             <div class="recipe-list">
               {% for item in document.recipe_choices %}
-                <section class="recipe-item">
-                  <div class="recipe-thumb">
-                    <span class="recipe-index">{{ loop.index }}</span>
-                    {% if item.cover_url %}
-                      <img src="{{ item.cover_url }}" alt="{{ item.cover_alt }}" />
-                    {% else %}
-                      <div class="recipe-placeholder">🍳</div>
-                    {% endif %}
-                  </div>
-                  <div class="recipe-copy">
-                    <div>
-                      <div class="recipe-title">{{ item.title }}</div>
-                      {% if item.matched %}
-                        <div class="match-row">
-                          {% for matched in item.matched %}<span class="match-tag">命中 · {{ matched }}</span>{% endfor %}
-                        </div>
-                      {% endif %}
-                    </div>
-                    <div class="recipe-meta">
-                      {% for label, value in item.metadata %}
-                        <span class="meta-pill"><span class="meta-label">{{ label }}</span><span class="meta-value">{{ value }}</span></span>
-                      {% endfor %}
-                    </div>
-                  </div>
-                </section>
+                {{ choice_card(item) }}
               {% endfor %}
             </div>
           {% else %}
-            <div class="empty-state"><span class="empty-icon">🍽️</span>没有找到匹配菜谱，换个菜名、拼音或原料再试试。</div>
+            <div class="empty-state"><span class="empty-icon">🍽️</span>没有找到匹配内容，换个菜名、拼音、原料或知识关键词再试试。</div>
           {% endif %}
+        </article>
+      {% elif document.layout == 'menu' %}
+        <article class="menu-content">
+          {% if document.recipe_choices %}
+            <div class="selection-guide">
+              <span class="guide-mark">#</span>
+              <span><strong>这桌菜可以继续点开看做法</strong><br />发送菜名前的序号即可查看完整菜谱，也可以发送“取消”结束选择。</span>
+            </div>
+          {% endif %}
+          <div class="menu-groups">
+            {% for group in document.choice_groups %}
+              <section class="menu-group">
+                <div class="menu-group-title"><span class="menu-group-icon">{{ group.icon }}</span>{{ group.title }}</div>
+                {% if group.items %}
+                  <div class="menu-items">
+                    {% for item in group.items %}{{ choice_card(item) }}{% endfor %}
+                  </div>
+                {% else %}
+                  <div class="empty-state">本次没有安排这一类菜。</div>
+                {% endif %}
+              </section>
+            {% endfor %}
+          </div>
+        </article>
+      {% elif document.layout == 'stats' %}
+        <article class="stats-content">
+          {% for chart in document.charts %}
+            <section class="chart-card">
+              <h2 class="chart-title">{{ chart.title }}</h2>
+              {% if chart.description %}<p class="chart-description">{{ chart.description }}</p>{% endif %}
+              <div class="chart-bars">
+                {% for bar in chart.bars %}
+                  <div class="chart-row">
+                    <span class="chart-label">{{ bar.label }}</span>
+                    <span class="chart-track"><span class="chart-fill" style="--bar: {{ bar.percent }}%"></span></span>
+                    <span class="chart-value">{{ bar.value }}</span>
+                  </div>
+                {% endfor %}
+              </div>
+            </section>
+          {% endfor %}
         </article>
       {% else %}
         <article class="content">{{ body_html }}</article>

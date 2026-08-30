@@ -9,7 +9,7 @@ from nonebot_plugin_waiter import waiter
 _CANCEL_WORDS = {"取消", "算了", "退出", "cancel", "quit", "q"}
 
 
-def parse_recipe_selection(value: str, result_count: int) -> int | None:
+def parse_selection(value: str, result_count: int) -> int | None:
     text = value.strip().casefold()
     if text in _CANCEL_WORDS:
         return -1
@@ -45,9 +45,14 @@ async def send_transient_notice(
     )
 
 
-async def wait_for_recipe_selection(result_count: int, *, timeout: int) -> int | None:
+async def wait_for_selection(result_count: int, *, timeout: int) -> int | None:
     @waiter(waits=["message"], keep_session=True)
     async def selection_waiter(reply: MessageEvent) -> int | None:
-        return parse_recipe_selection(reply.get_plaintext(), result_count)
+        return parse_selection(reply.get_plaintext(), result_count)
 
     return await selection_waiter.wait(timeout=timeout)
+
+
+# Backward-compatible names for callers that imported the 0.1 API.
+parse_recipe_selection = parse_selection
+wait_for_recipe_selection = wait_for_selection

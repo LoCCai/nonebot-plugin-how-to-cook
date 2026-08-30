@@ -37,8 +37,8 @@ async def test_multiple_search_results_deliver_list_then_selected_detail(monkeyp
         assert timeout == 120
         return 1
 
-    async def fake_fetch(_client, identifier, *, image_mode):
-        fetched.append((identifier, image_mode))
+    async def fake_fetch(_client, choice, *, image_mode):
+        fetched.append((choice.identifier, choice.kind, image_mode))
         return detail_document
 
     monkeypatch.setattr(matcher, "_client", lambda: client)
@@ -46,8 +46,8 @@ async def test_multiple_search_results_deliver_list_then_selected_detail(monkeyp
     monkeypatch.setattr(matcher, "MessageDelivery", lambda *_args: delivery)
     monkeypatch.setattr(matcher, "_deliver_document", fake_deliver)
     monkeypatch.setattr(matcher, "send_transient_notice", fake_notice)
-    monkeypatch.setattr(matcher, "wait_for_recipe_selection", fake_wait)
-    monkeypatch.setattr(matcher, "fetch_recipe_document", fake_fetch)
+    monkeypatch.setattr(matcher, "wait_for_selection", fake_wait)
+    monkeypatch.setattr(matcher, "fetch_selection_document", fake_fetch)
 
     await matcher.handle_how_to_cook(  # type: ignore[arg-type]
         object(),
@@ -57,7 +57,7 @@ async def test_multiple_search_results_deliver_list_then_selected_detail(monkeyp
 
     assert [item[0] for item in delivered] == [search_document, detail_document]
     assert delivered[0][1] == {"mode": "render", "theme": None}
-    assert fetched == [("second", "server")]
+    assert fetched == [("second", "recipe", "server")]
     assert len(notices) == 1
     assert "1–2" in notices[0][0]
     assert notices[0][1] == 15

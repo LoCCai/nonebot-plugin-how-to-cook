@@ -1,9 +1,14 @@
 from nonebot_plugin_how_to_cook.content import (
     Document,
     Section,
+    aggregate_search_document,
+    content_check_document,
+    ingredients_discovery_document,
+    menu_document,
     recipe_document,
     recipe_list_document,
     split_text,
+    stats_document,
 )
 
 
@@ -78,3 +83,87 @@ def test_document_text_and_lossless_splitting() -> None:
     chunks = split_text(document.full_text(), 10)
     assert chunks
     assert "".join(chunks).replace("\n", "") == document.full_text().replace("\n", "")
+
+
+def test_ingredient_discovery_exposes_coverage_and_missing_items() -> None:
+    document = ingredients_discovery_document(
+        [
+            {
+                "id": "dish",
+                "title": "番茄炒蛋",
+                "ingredients_match": {
+                    "coverage": 0.5,
+                    "hit_count": 2,
+                    "total": 4,
+                    "missing": ["盐", "油"],
+                },
+            }
+        ],
+        {"have": ["鸡蛋", "番茄"], "mode": "loose"},
+        asset_base_url="http://cook.test",
+    )
+    assert document.layout == "recipe_list"
+    assert document.recipe_choices[0].metadata[:2] == [("覆盖", "50%"), ("已有", "2/4")]
+    assert document.recipe_choices[0].note == "还缺：盐、油"
+
+
+def test_menu_groups_share_global_selection_numbers() -> None:
+    document = menu_document(
+        {
+            "meat": [{"id": "m", "title": "红烧肉"}],
+            "vegetable": [{"id": "v", "title": "油麦菜"}],
+            "soup": [{"id": "s", "title": "蛋花汤"}],
+        },
+        {"seed": "dinner", "max_difficulty": 3, "unfilled": []},
+        asset_base_url="http://cook.test",
+    )
+    assert document.layout == "menu"
+    assert [group.title for group in document.choice_groups] == ["荤菜与水产", "时蔬", "汤与粥"]
+    assert [choice.number for choice in document.recipe_choices] == [1, 2, 3]
+
+
+def test_aggregate_search_can_select_recipe_or_tip() -> None:
+    document = aggregate_search_document(
+        {
+            "recipes": {"total": 1, "items": [{"id": "r", "title": "炒饭"}]},
+            "tips": {
+                "total": 1,
+                "items": [{"id": "t", "title": "厨房安全", "group": "advanced"}],
+            },
+        },
+        {"q": "厨房"},
+        asset_base_url="http://cook.test",
+    )
+    assert [choice.kind for choice in document.recipe_choices] == ["recipe", "tip"]
+    assert [choice.number for choice in document.recipe_choices] == [1, 2]
+
+
+def test_stats_and_content_check_have_dedicated_presentations() -> None:
+    stats = stats_document(
+        {
+            "recipes": 10,
+            "tips": 2,
+            "categories": [{"title": "荤菜", "count": 6}],
+            "difficulty": {"1": 1, "2": 2, "3": 3, "4": 3, "5": 1},
+            "methods": [{"name": "炒", "count": 5}],
+            "top_ingredients": [{"name": "盐", "count": 8}],
+            "avg_calories": 520.5,
+            "recipes_with_time_estimate": 8,
+        },
+        asset_base_url="http://cook.test",
+    )
+    assert stats.layout == "stats"
+    assert len(stats.charts) == 4
+    assert stats.charts[0].bars[0].percent == 100
+
+    check = content_check_document(
+        {
+            "up_to_date": True,
+            "local": "a" * 40,
+            "remote": "a" * 40,
+            "checked_at": "2026-08-30T00:00:00Z",
+        },
+        asset_base_url="http://cook.test",
+    )
+    assert "最新" in check.description
+    assert "不向聊天用户开放内容更新" in check.full_text()

@@ -9,8 +9,8 @@ from .commands import CommandError, parse_command
 from .config import ResponseMode, ThemeMode, plugin_config
 from .content import Document
 from .delivery import DeliveryError, DeliveryResultUnknown, MessageDelivery
-from .interaction import send_transient_notice, wait_for_recipe_selection
-from .service import execute_command, fetch_recipe_document
+from .interaction import send_transient_notice, wait_for_selection
+from .service import execute_command, fetch_selection_document
 
 how_to_cook = on_command(
     "做饭",
@@ -96,12 +96,12 @@ async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = Comm
             bot,
             event,
             (
-                f"请在 {selection_timeout} 秒内发送 1–{choice_count} 的序号查看完整菜谱；"
-                "发送“取消”结束。"
+                f"请在 {selection_timeout} 秒内发送 1–{choice_count} 的序号查看详情；"
+                "菜谱会打开完整做法，技巧会打开全文；发送“取消”结束。"
             ),
             delay=plugin_config.how_to_cook_reminder_recall_seconds,
         )
-        selected = await wait_for_recipe_selection(choice_count, timeout=selection_timeout)
+        selected = await wait_for_selection(choice_count, timeout=selection_timeout)
     except Exception:
         logger.exception("HowToCook 等待菜谱序号失败")
         return
@@ -126,16 +126,16 @@ async def handle_how_to_cook(bot: Bot, event: MessageEvent, args: Message = Comm
     choice = document.recipe_choices[selected]
     image_mode = str(command.params.get("image_mode") or plugin_config.how_to_cook_image_mode)
     try:
-        selected_document = await fetch_recipe_document(
+        selected_document = await fetch_selection_document(
             client,
-            choice.identifier,
+            choice,
             image_mode=image_mode,
         )
     except HowToCookAPIError as exc:
         await how_to_cook.finish(exc.user_message())
     except Exception:
-        logger.exception("HowToCook 获取所选菜谱详情失败")
-        await how_to_cook.finish("读取所选菜谱失败了，请稍后再试。")
+        logger.exception("HowToCook 获取所选条目详情失败")
+        await how_to_cook.finish("读取所选内容失败了，请稍后再试。")
 
     await _deliver_document(
         delivery,

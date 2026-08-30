@@ -18,8 +18,22 @@ _RECIPE_RESOURCES = {
     "markdown",
     "html",
     "raw",
+    "related",
 }
 _TIP_RESOURCES = {"meta", "markdown", "html", "raw"}
+_ROOT_GET_ENDPOINTS = {
+    "health",
+    "categories",
+    "recipes",
+    "tips",
+    "menu",
+    "search",
+    "stats",
+    "content",
+    "content/check",
+    "docs",
+    "openapi.json",
+}
 _SAFE_QUERY_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
 
 
@@ -78,13 +92,13 @@ def normalize_endpoint(path: str) -> tuple[str, bool]:
         return value, True
 
     pieces = value.split("/")
-    valid = value in {"health", "categories", "recipes", "tips"}
+    valid = value in _ROOT_GET_ENDPOINTS
     if pieces[0] == "recipes" and len(pieces) in {2, 3}:
         valid = len(pieces) == 2 or pieces[2] in _RECIPE_RESOURCES
     elif pieces[0] == "tips" and len(pieces) in {2, 3}:
         valid = len(pieces) == 2 or pieces[2] in _TIP_RESOURCES
     if not valid:
-        raise ValueError("只允许访问 HowToCook 的 health/categories/recipes/tips/assets GET 接口")
+        raise ValueError("只允许访问 HowToCook 已知的只读 GET 接口；内容更新 POST 不对用户开放")
     return value, False
 
 
@@ -138,7 +152,7 @@ class HowToCookClient:
             timeout=self.timeout,
             follow_redirects=True,
             trust_env=trust_env,
-            headers={"User-Agent": "nonebot-plugin-how-to-cook/0.1.0"},
+            headers={"User-Agent": "nonebot-plugin-how-to-cook/0.2.0"},
         )
 
     async def _get_response(
@@ -226,6 +240,39 @@ class HowToCookClient:
             "recipes", params={k: v for k, v in params.items() if v is not None}
         )
 
+    async def random_recipes(self, **params: Any) -> APIResult:
+        return await self.request(
+            "recipes/random", params={k: v for k, v in params.items() if v is not None}
+        )
+
+    async def recipes_by_ingredients(self, **params: Any) -> APIResult:
+        return await self.request(
+            "recipes/by-ingredients",
+            params={k: v for k, v in params.items() if v is not None},
+        )
+
+    async def menu(self, **params: Any) -> APIResult:
+        return await self.request("menu", params={k: v for k, v in params.items() if v is not None})
+
+    async def search_all(self, query: str, *, image_mode: str | None = None) -> APIResult:
+        return await self.request(
+            "search",
+            params={
+                key: value
+                for key, value in {"q": query, "image_mode": image_mode}.items()
+                if value is not None
+            },
+        )
+
+    async def stats(self) -> APIResult:
+        return await self.request("stats")
+
+    async def content_info(self) -> APIResult:
+        return await self.request("content")
+
+    async def content_check(self) -> APIResult:
+        return await self.request("content/check")
+
     async def recipe(
         self,
         identifier: str,
@@ -238,9 +285,34 @@ class HowToCookClient:
         endpoint = f"recipes/{quote(identifier, safe='')}"
         if resource:
             endpoint += f"/{resource}"
-        supports_image_mode = resource in {None, "meta", "sections", "images", "markdown", "html"}
+        supports_image_mode = resource in {
+            None,
+            "meta",
+            "sections",
+            "images",
+            "markdown",
+            "html",
+            "related",
+        }
         params = {"image_mode": image_mode} if image_mode and supports_image_mode else None
         return await self.request(endpoint, params=params)
+
+    async def related_recipes(
+        self,
+        identifier: str,
+        *,
+        limit: int | None = None,
+        image_mode: str | None = None,
+    ) -> APIResult:
+        endpoint = f"recipes/{quote(identifier, safe='')}/related"
+        return await self.request(
+            endpoint,
+            params={
+                key: value
+                for key, value in {"limit": limit, "image_mode": image_mode}.items()
+                if value is not None
+            },
+        )
 
     async def tips(self, **params: Any) -> APIResult:
         return await self.request("tips", params={k: v for k, v in params.items() if v is not None})

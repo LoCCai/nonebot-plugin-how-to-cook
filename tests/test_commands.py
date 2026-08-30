@@ -53,6 +53,59 @@ def test_tip_search_options() -> None:
     assert command.params == {"group": "advanced", "page": 2, "page_size": 10}
 
 
+def test_random_menu_and_related_commands() -> None:
+    random = parse_command("随机 3 --分类 soup --难度 2 --种子 dinner")
+    assert random.action == "random"
+    assert random.params == {
+        "category": "soup",
+        "difficulty": 2,
+        "seed": "dinner",
+        "count": 3,
+    }
+
+    menu = parse_command("配餐 --荤 2 --素 0 --汤 1 --最高难度 3 --种子 family")
+    assert menu.action == "menu"
+    assert menu.params == {
+        "meat": 2,
+        "vegetable": 0,
+        "soup": 1,
+        "max_difficulty": 3,
+        "seed": "family",
+    }
+
+    related = parse_command("相关 dishes/staple/蛋炒饭.md --数量 6")
+    assert related.action == "related"
+    assert related.identifier == "dishes/staple/蛋炒饭.md"
+    assert related.params == {"limit": 6}
+
+
+def test_ingredient_discovery_and_aggregate_search() -> None:
+    command = parse_command("食材 鸡蛋，番茄 土豆 --严格 --数量 7")
+    assert command.action == "by_ingredients"
+    assert command.params == {
+        "limit": 7,
+        "have": "鸡蛋,番茄,土豆",
+        "mode": "strict",
+    }
+
+    aggregate = parse_command("全局搜索 厨房 安全 --图片模式 server")
+    assert aggregate.action == "aggregate_search"
+    assert aggregate.query == "厨房 安全"
+    assert aggregate.params == {"image_mode": "server"}
+
+
+@pytest.mark.parametrize(
+    ("text", "action"),
+    [
+        ("统计", "stats"),
+        ("内容版本", "content_info"),
+        ("内容检查", "content_check"),
+    ],
+)
+def test_new_read_only_status_commands(text: str, action: str) -> None:
+    assert parse_command(text).action == action
+
+
 def test_generic_api_parameters() -> None:
     command = parse_command("接口 recipes q=番茄 --page-size 5 image_mode=server")
     assert command.identifier == "recipes"
@@ -69,6 +122,12 @@ def test_generic_api_parameters() -> None:
         "接口 recipes bad",
         "健康 extra",
         "搜索 肉 --模式 未知",
+        "随机 21",
+        "配餐 --荤 0 --素 0 --汤 0",
+        "食材",
+        "食材 鸡蛋 --匹配 不知道",
+        "全局搜索",
+        "统计 extra",
     ],
 )
 def test_invalid_commands(text: str) -> None:

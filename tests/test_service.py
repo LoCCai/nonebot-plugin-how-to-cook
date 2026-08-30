@@ -92,3 +92,94 @@ async def test_service_caps_bot_page_size() -> None:
     )
     with pytest.raises(CommandError, match="每页最多"):
         await execute_command(client, parse_command("搜索 肉 --每页 21"), Config())
+
+
+@pytest.mark.asyncio
+async def test_random_single_result_expands_to_full_recipe() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/recipes/random":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [{"id": "picked", "title": "随机菜"}],
+                    "meta": {"count": 1, "seed": "x", "total_available": 368},
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "id": "picked",
+                    "title": "随机菜",
+                    "ingredients": [],
+                    "tools": [],
+                    "steps": [],
+                }
+            },
+        )
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    document = await execute_command(client, parse_command("随机 --种子 x"), Config())
+    assert document.title == "随机菜"
+    assert [request.url.path for request in requests] == [
+        "/api/recipes/random",
+        "/api/recipes/picked",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_aggregate_single_tip_expands_to_tip_detail() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/search":
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "recipes": {"total": 0, "items": []},
+                        "tips": {
+                            "total": 1,
+                            "items": [{"id": "tip-one", "title": "厨房安全"}],
+                        },
+                    },
+                    "meta": {"q": "安全"},
+                },
+            )
+        assert request.url.path == "/api/tips/tip-one"
+        return httpx.Response(
+            200,
+            json={"data": {"id": "tip-one", "title": "厨房安全", "content": {}}},
+        )
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    document = await execute_command(client, parse_command("全局搜索 安全"), Config())
+    assert document.title == "厨房安全"
+    assert document.kicker == "HOW TO COOK · KITCHEN TIPS"
+
+
+@pytest.mark.asyncio
+async def test_menu_and_stats_use_dedicated_layouts() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/menu":
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "meat": [{"id": "m", "title": "肉"}],
+                        "vegetable": [{"id": "v", "title": "菜"}],
+                        "soup": [{"id": "s", "title": "汤"}],
+                    },
+                    "meta": {"seed": "x", "unfilled": []},
+                },
+            )
+        assert request.url.path == "/api/stats"
+        return httpx.Response(200, json={"data": {"recipes": 3, "tips": 1}})
+
+    client = HowToCookClient("http://cook.test/api", transport=httpx.MockTransport(handler))
+    menu = await execute_command(client, parse_command("配餐 --种子 x"), Config())
+    stats = await execute_command(client, parse_command("统计"), Config())
+    assert menu.layout == "menu"
+    assert len(menu.recipe_choices) == 3
+    assert stats.layout == "stats"

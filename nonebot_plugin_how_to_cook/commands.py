@@ -34,6 +34,33 @@ _ACTIONS = {
     "搜索": "search",
     "搜菜": "search",
     "search": "search",
+    "随机": "random",
+    "推荐": "random",
+    "random": "random",
+    "配餐": "menu",
+    "菜单": "menu",
+    "menu": "menu",
+    "食材": "by_ingredients",
+    "食材找菜": "by_ingredients",
+    "库存": "by_ingredients",
+    "有什么做什么": "by_ingredients",
+    "by-ingredients": "by_ingredients",
+    "相关": "related",
+    "相似": "related",
+    "related": "related",
+    "全局搜索": "aggregate_search",
+    "聚合搜索": "aggregate_search",
+    "综合搜索": "aggregate_search",
+    "global-search": "aggregate_search",
+    "统计": "stats",
+    "数据统计": "stats",
+    "stats": "stats",
+    "内容版本": "content_info",
+    "版本": "content_info",
+    "content": "content_info",
+    "内容检查": "content_check",
+    "检查更新": "content_check",
+    "content-check": "content_check",
     "详情": "recipe",
     "菜谱": "recipe",
     "做法": "recipe",
@@ -41,7 +68,8 @@ _ACTIONS = {
     "元信息": "recipe_meta",
     "meta": "recipe_meta",
     "原料": "ingredients",
-    "食材": "ingredients",
+    "菜谱原料": "ingredients",
+    "食材清单": "ingredients",
     "ingredients": "ingredients",
     "工具": "tools",
     "tools": "tools",
@@ -99,6 +127,14 @@ _THEME_ALIASES: dict[str, ThemeMode] = {
     "深色": "dark",
     "dark": "dark",
 }
+_INGREDIENT_MODE_ALIASES = {
+    "loose": "loose",
+    "宽松": "loose",
+    "推荐": "loose",
+    "strict": "strict",
+    "严格": "strict",
+    "齐全": "strict",
+}
 
 _COMMON_OPTIONS = {
     "--mode": "mode",
@@ -106,6 +142,10 @@ _COMMON_OPTIONS = {
     "-m": "mode",
     "--theme": "theme",
     "--主题": "theme",
+}
+_IMAGE_OPTIONS = {
+    "--image-mode": "image_mode",
+    "--图片模式": "image_mode",
 }
 _SEARCH_OPTIONS = {
     "--category": "category",
@@ -124,9 +164,52 @@ _SEARCH_OPTIONS = {
     "--每页": "page_size",
     "--fields": "fields",
     "--字段": "fields",
-    "--image-mode": "image_mode",
-    "--图片模式": "image_mode",
+    **_IMAGE_OPTIONS,
 }
+_RANDOM_OPTIONS = {
+    "--count": "count",
+    "--数量": "count",
+    "--seed": "seed",
+    "--种子": "seed",
+    "--category": "category",
+    "--分类": "category",
+    "--difficulty": "difficulty",
+    "--难度": "difficulty",
+    **_IMAGE_OPTIONS,
+}
+_MENU_OPTIONS = {
+    "--seed": "seed",
+    "--种子": "seed",
+    "--meat": "meat",
+    "--荤": "meat",
+    "--荤菜": "meat",
+    "--vegetable": "vegetable",
+    "--素": "vegetable",
+    "--素菜": "vegetable",
+    "--soup": "soup",
+    "--汤": "soup",
+    "--max-difficulty": "max_difficulty",
+    "--最高难度": "max_difficulty",
+    **_IMAGE_OPTIONS,
+}
+_INGREDIENT_OPTIONS = {
+    "--match": "ingredient_mode",
+    "--匹配": "ingredient_mode",
+    "--limit": "limit",
+    "--数量": "limit",
+    "--上限": "limit",
+    **_IMAGE_OPTIONS,
+}
+_INGREDIENT_FLAGS = {
+    "--严格": ("ingredient_mode", "strict"),
+    "--宽松": ("ingredient_mode", "loose"),
+}
+_RELATED_OPTIONS = {
+    "--limit": "limit",
+    "--数量": "limit",
+    **_IMAGE_OPTIONS,
+}
+_AGGREGATE_OPTIONS = dict(_IMAGE_OPTIONS)
 _TIP_OPTIONS = {
     "--group": "group",
     "--分组": "group",
@@ -135,8 +218,8 @@ _TIP_OPTIONS = {
     "--page-size": "page_size",
     "--每页": "page_size",
 }
-_INTEGER_OPTIONS = {"difficulty", "max_difficulty", "page", "page_size"}
 _QUERY_KEY = re.compile(r"[A-Za-z][A-Za-z0-9_]*\Z")
+_INGREDIENT_SPLIT = re.compile(r"[,，、\s]+")
 
 
 def _split_option(token: str) -> tuple[str, str | None]:
@@ -148,12 +231,21 @@ def _split_option(token: str) -> tuple[str, str | None]:
 def _take_options(
     tokens: list[str],
     mapping: dict[str, str],
+    *,
+    flags: dict[str, tuple[str, str]] | None = None,
 ) -> tuple[list[str], dict[str, str]]:
     positional: list[str] = []
     options: dict[str, str] = {}
     index = 0
     while index < len(tokens):
         name, inline = _split_option(tokens[index])
+        if flags and name in flags:
+            if inline is not None:
+                raise CommandError(f"开关参数 {name} 不接受值")
+            target, value = flags[name]
+            options[target] = value
+            index += 1
+            continue
         target = mapping.get(name)
         if target is None:
             if tokens[index].startswith("-"):
@@ -204,23 +296,27 @@ def _extract_common(tokens: list[str]) -> tuple[list[str], ResponseMode | None, 
     return positional, mode, theme
 
 
-def _typed_options(values: dict[str, str]) -> dict[str, Any]:
+def _typed_options(
+    values: dict[str, str],
+    *,
+    integer_rules: dict[str, tuple[int, int | None, str]] | None = None,
+) -> dict[str, Any]:
     result: dict[str, Any] = {}
+    rules = integer_rules or {}
     for key, value in values.items():
-        if key in _INTEGER_OPTIONS:
-            try:
-                number = int(value)
-            except ValueError as exc:
-                raise CommandError(f"{key} 必须是整数") from exc
-            if number < 1:
-                raise CommandError(f"{key} 必须大于 0")
-            result[key] = number
-        else:
+        if key not in rules:
             result[key] = value
-    if "difficulty" in result and not 1 <= result["difficulty"] <= 5:
-        raise CommandError("难度必须在 1 到 5 之间")
-    if "max_difficulty" in result and not 1 <= result["max_difficulty"] <= 5:
-        raise CommandError("最高难度必须在 1 到 5 之间")
+            continue
+        minimum, maximum, label = rules[key]
+        try:
+            number = int(value)
+        except ValueError as exc:
+            raise CommandError(f"{label}必须是整数") from exc
+        if number < minimum or (maximum is not None and number > maximum):
+            if maximum is None:
+                raise CommandError(f"{label}不能小于 {minimum}")
+            raise CommandError(f"{label}必须在 {minimum} 到 {maximum} 之间")
+        result[key] = number
     if result.get("image_mode") not in {None, "relative", "server", "proxy"}:
         raise CommandError("图片模式仅支持 relative、server、proxy")
     return result
@@ -254,6 +350,11 @@ def _parse_generic(tokens: list[str]) -> tuple[str, dict[str, str]]:
     return endpoint, params
 
 
+def _require_no_extra(label: str, remainder: list[str]) -> None:
+    if remainder:
+        raise CommandError(f"{label}不接受额外参数")
+
+
 def parse_command(text: str) -> ParsedCommand:
     try:
         original = shlex.split(text, posix=True)
@@ -271,9 +372,8 @@ def parse_command(text: str) -> ParsedCommand:
     if action is None:
         action = "search"
         remainder = tokens
-    if action in {"help", "health", "categories"}:
-        if remainder:
-            raise CommandError(f"{tokens[0]} 不接受额外参数")
+    if action in {"help", "health", "categories", "stats", "content_info", "content_check"}:
+        _require_no_extra(tokens[0], remainder)
         return ParsedCommand(action, mode=mode, theme=theme)
     if action == "search":
         positional, raw_options = _take_options(remainder, _SEARCH_OPTIONS)
@@ -283,19 +383,102 @@ def parse_command(text: str) -> ParsedCommand:
             for key in ("category", "ingredient", "difficulty", "max_difficulty")
         ):
             raise CommandError("请提供菜名、拼音、原料或筛选条件")
+        params = _typed_options(
+            raw_options,
+            integer_rules={
+                "difficulty": (1, 5, "难度"),
+                "max_difficulty": (1, 5, "最高难度"),
+                "page": (1, None, "页码"),
+                "page_size": (1, 100, "每页数量"),
+            },
+        )
+        return ParsedCommand(action, query=query or None, params=params, mode=mode, theme=theme)
+    if action == "random":
+        positional, raw_options = _take_options(remainder, _RANDOM_OPTIONS)
+        if len(positional) > 1 or (positional and not positional[0].isdigit()):
+            raise CommandError("随机推荐可直接写数量，例如：做饭 随机 3")
+        if positional:
+            raw_options.setdefault("count", positional[0])
+        params = _typed_options(
+            raw_options,
+            integer_rules={"count": (1, 20, "数量"), "difficulty": (1, 5, "难度")},
+        )
+        return ParsedCommand(action, params=params, mode=mode, theme=theme)
+    if action == "menu":
+        positional, raw_options = _take_options(remainder, _MENU_OPTIONS)
+        if positional:
+            raise CommandError(f"配餐参数无法识别：{' '.join(positional)}")
+        params = _typed_options(
+            raw_options,
+            integer_rules={
+                "meat": (0, 3, "荤菜数量"),
+                "vegetable": (0, 3, "素菜数量"),
+                "soup": (0, 3, "汤数量"),
+                "max_difficulty": (1, 5, "最高难度"),
+            },
+        )
+        if all(params.get(key) == 0 for key in ("meat", "vegetable", "soup")):
+            raise CommandError("荤菜、素菜和汤不能同时为 0")
+        return ParsedCommand(action, params=params, mode=mode, theme=theme)
+    if action == "by_ingredients":
+        positional, raw_options = _take_options(
+            remainder,
+            _INGREDIENT_OPTIONS,
+            flags=_INGREDIENT_FLAGS,
+        )
+        ingredients = list(
+            dict.fromkeys(value for value in _INGREDIENT_SPLIT.split(" ".join(positional)) if value)
+        )
+        if not ingredients:
+            raise CommandError("请告诉我手头有什么，例如：做饭 食材 鸡蛋 西红柿")
+        params = _typed_options(
+            raw_options,
+            integer_rules={"limit": (1, 50, "数量")},
+        )
+        raw_ingredient_mode = str(params.pop("ingredient_mode", "loose")).casefold()
+        ingredient_mode = _INGREDIENT_MODE_ALIASES.get(raw_ingredient_mode)
+        if ingredient_mode is None:
+            raise CommandError("原料匹配仅支持：宽松、严格")
+        params.update(have=",".join(ingredients), mode=ingredient_mode)
+        return ParsedCommand(action, params=params, mode=mode, theme=theme)
+    if action == "related":
+        positional, raw_options = _take_options(remainder, _RELATED_OPTIONS)
+        identifier = " ".join(positional).strip()
+        if not identifier:
+            raise CommandError("相关推荐需要菜谱 ID 或路径")
+        params = _typed_options(
+            raw_options,
+            integer_rules={"limit": (1, 20, "数量")},
+        )
         return ParsedCommand(
             action,
-            query=query or None,
+            identifier=identifier,
+            params=params,
+            mode=mode,
+            theme=theme,
+        )
+    if action == "aggregate_search":
+        positional, raw_options = _take_options(remainder, _AGGREGATE_OPTIONS)
+        query = " ".join(positional).strip()
+        if not query:
+            raise CommandError("全局搜索需要关键词")
+        return ParsedCommand(
+            action,
+            query=query,
             params=_typed_options(raw_options),
             mode=mode,
             theme=theme,
         )
     if action == "tips":
         positional, raw_options = _take_options(remainder, _TIP_OPTIONS)
+        params = _typed_options(
+            raw_options,
+            integer_rules={"page": (1, None, "页码"), "page_size": (1, 100, "每页数量")},
+        )
         return ParsedCommand(
             action,
             query=" ".join(positional).strip() or None,
-            params=_typed_options(raw_options),
+            params=params,
             mode=mode,
             theme=theme,
         )

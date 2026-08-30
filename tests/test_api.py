@@ -94,10 +94,54 @@ async def test_image_download_has_type_and_size_guards() -> None:
 
 def test_generic_endpoint_allowlist() -> None:
     assert normalize_endpoint("/api/recipes/abc/steps") == ("recipes/abc/steps", False)
+    assert normalize_endpoint("recipes/abc/related") == ("recipes/abc/related", False)
+    assert normalize_endpoint("recipes/random") == ("recipes/random", False)
+    assert normalize_endpoint("menu") == ("menu", False)
+    assert normalize_endpoint("content/check") == ("content/check", False)
+    assert normalize_endpoint("openapi.json") == ("openapi.json", False)
     assert normalize_endpoint("assets/dishes/a.jpg") == ("assets/dishes/a.jpg", True)
-    for value in ("https://evil.test/a", "recipes/../health", "admin", "recipes?a=1"):
+    for value in (
+        "https://evil.test/a",
+        "recipes/../health",
+        "admin",
+        "recipes?a=1",
+        "content/update",
+    ):
         with pytest.raises(ValueError):
             normalize_endpoint(value)
+
+
+@pytest.mark.asyncio
+async def test_new_discovery_client_methods() -> None:
+    seen: list[tuple[str, dict[str, str]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json={"data": [], "meta": {}})
+
+    client = _client(handler)
+    await client.random_recipes(count=3, seed="qiqi")
+    await client.recipes_by_ingredients(have="鸡蛋,番茄", mode="strict", limit=8)
+    await client.menu(meat=1, vegetable=1, soup=1, max_difficulty=3)
+    await client.related_recipes("abc", limit=4, image_mode="server")
+    await client.search_all("备菜", image_mode="server")
+    await client.stats()
+    await client.content_info()
+    await client.content_check()
+
+    assert [path for path, _params in seen] == [
+        "/api/recipes/random",
+        "/api/recipes/by-ingredients",
+        "/api/menu",
+        "/api/recipes/abc/related",
+        "/api/search",
+        "/api/stats",
+        "/api/content",
+        "/api/content/check",
+    ]
+    assert seen[0][1] == {"count": "3", "seed": "qiqi"}
+    assert seen[1][1]["have"] == "鸡蛋,番茄"
+    assert seen[3][1] == {"limit": "4", "image_mode": "server"}
 
 
 def test_json_fixture_is_valid() -> None:

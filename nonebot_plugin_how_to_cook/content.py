@@ -23,10 +23,36 @@ class Section:
 class RecipeListItem:
     identifier: str
     title: str
+    number: int = 0
+    kind: Literal["recipe", "tip"] = "recipe"
+    badge: str = "菜谱"
     metadata: list[tuple[str, str]] = field(default_factory=list)
     cover_url: str | None = None
     cover_alt: str = "菜谱成品图"
     matched: list[str] = field(default_factory=list)
+    note: str = ""
+
+
+@dataclass(slots=True)
+class ChoiceGroup:
+    key: str
+    title: str
+    icon: str
+    items: list[RecipeListItem] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class ChartBar:
+    label: str
+    value: str
+    percent: float
+
+
+@dataclass(slots=True)
+class ChartGroup:
+    title: str
+    description: str = ""
+    bars: list[ChartBar] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -45,8 +71,10 @@ class Document:
     asset_base_url: str | None = None
     footer: str = "内容来自 HowToCook 社区，仅供烹饪参考"
     filename_hint: str = "how-to-cook"
-    layout: Literal["article", "recipe_list"] = "article"
+    layout: Literal["article", "recipe_list", "menu", "stats"] = "article"
     recipe_choices: list[RecipeListItem] = field(default_factory=list)
+    choice_groups: list[ChoiceGroup] = field(default_factory=list)
+    charts: list[ChartGroup] = field(default_factory=list)
 
     def summary_text(self) -> str:
         lines = [f"🍳 {self.title}"]
@@ -191,9 +219,76 @@ def _search_metadata(data: dict[str, Any]) -> list[tuple[str, str]]:
 _MATCHED_LABELS = {
     "title": "标题",
     "pinyin": "拼音",
+    "title_pinyin": "拼音",
+    "title_initials": "拼音首字母",
     "ingredients": "原料",
+    "category": "分类",
     "content": "正文",
 }
+
+
+def _matched_labels(data: dict[str, Any]) -> list[str]:
+    matched = data.get("matched")
+    if not isinstance(matched, list):
+        return []
+    return [_MATCHED_LABELS.get(str(value), str(value)) for value in matched]
+
+
+def _recipe_choice(
+    data: dict[str, Any],
+    number: int,
+    *,
+    badge: str = "菜谱",
+    note: str = "",
+    extra_metadata: list[tuple[str, str]] | None = None,
+) -> RecipeListItem | None:
+    identifier = _text(data.get("id"), "")
+    if not identifier:
+        return None
+    item_cover, item_alt = _cover(data)
+    metadata = list(extra_metadata or []) + _search_metadata(data)
+    return RecipeListItem(
+        identifier=identifier,
+        title=_text(data.get("title"), "未命名菜谱"),
+        number=number,
+        kind="recipe",
+        badge=badge,
+        metadata=metadata,
+        cover_url=item_cover,
+        cover_alt=item_alt,
+        matched=_matched_labels(data),
+        note=note,
+    )
+
+
+def _tip_choice(data: dict[str, Any], number: int) -> RecipeListItem | None:
+    identifier = _text(data.get("id"), "")
+    if not identifier:
+        return None
+    metadata = [("分组", _text(data.get("group"), "未分组"))]
+    if data.get("updated_at"):
+        metadata.append(("更新", str(data["updated_at"])[:10]))
+    return RecipeListItem(
+        identifier=identifier,
+        title=_text(data.get("title"), "未命名技巧"),
+        number=number,
+        kind="tip",
+        badge="厨房技巧",
+        metadata=metadata,
+        matched=_matched_labels(data),
+    )
+
+
+def _choice_sections(choices: list[RecipeListItem]) -> list[Section]:
+    sections: list[Section] = []
+    for choice in choices:
+        details = [" · ".join(f"{key} {value}" for key, value in choice.metadata)]
+        if choice.matched:
+            details.append(f"命中：{' / '.join(choice.matched)}")
+        if choice.note:
+            details.append(choice.note)
+        sections.append(Section(f"{choice.number}. {choice.title}", "\n".join(details)))
+    return sections
 
 
 def _ingredient_lines(items: Any) -> str:
@@ -310,37 +405,14 @@ def recipe_document(data: Any, *, asset_base_url: str) -> Document:
 
 def recipe_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
     items = data if isinstance(data, list) else []
-    sections: list[Section] = []
     choices: list[RecipeListItem] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        item_cover, item_alt = _cover(item)
-        metadata = _search_metadata(item)
-        matched = item.get("matched")
-        matched_labels = (
-            [_MATCHED_LABELS.get(str(value), str(value)) for value in matched]
-            if isinstance(matched, list)
-            else []
-        )
-        identifier = _text(item.get("id"), "")
-        title = _text(item.get("title"), "未命名菜谱")
-        if not identifier:
-            continue
-        choices.append(
-            RecipeListItem(
-                identifier=identifier,
-                title=title,
-                metadata=metadata,
-                cover_url=item_cover,
-                cover_alt=item_alt,
-                matched=matched_labels,
-            )
-        )
-        detail = [" · ".join(f"{key} {value}" for key, value in metadata)]
-        if isinstance(matched, list) and matched:
-            detail.append(f"命中：{' / '.join(matched_labels)}")
-        sections.append(Section(f"{len(choices)}. {title}", "\n".join(detail)))
+        choice = _recipe_choice(item, len(choices) + 1)
+        if choice:
+            choices.append(choice)
+    sections = _choice_sections(choices)
     total = int(meta.get("total") or 0)
     page = int(meta.get("page") or 1)
     pages = int(meta.get("pages") or 1)
@@ -358,6 +430,366 @@ def recipe_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str
         filename_hint="HowToCook-搜索结果",
         layout="recipe_list",
         recipe_choices=choices,
+    )
+
+
+def random_recipes_document(
+    data: Any,
+    meta: dict[str, Any],
+    *,
+    asset_base_url: str,
+) -> Document:
+    items = data if isinstance(data, list) else []
+    choices: list[RecipeListItem] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        choice = _recipe_choice(item, len(choices) + 1, badge="随机推荐")
+        if choice:
+            choices.append(choice)
+    total_available = int(meta.get("total_available") or 0)
+    seed = _text(meta.get("seed"), "随机")
+    return Document(
+        title="今天吃什么？",
+        kicker="HOW TO COOK · RANDOM PICK",
+        description=f"从 {total_available} 道候选菜谱中，为你抽到了 {len(choices)} 道。",
+        stats=[("推荐", str(len(choices))), ("候选池", str(total_available)), ("种子", seed)],
+        sections=_choice_sections(choices)
+        or [Section("没有结果", "当前筛选条件下没有可推荐的菜谱。")],
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-随机推荐",
+        layout="recipe_list",
+        recipe_choices=choices,
+    )
+
+
+def ingredients_discovery_document(
+    data: Any,
+    meta: dict[str, Any],
+    *,
+    asset_base_url: str,
+) -> Document:
+    items = data if isinstance(data, list) else []
+    choices: list[RecipeListItem] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        match = item.get("ingredients_match")
+        match = match if isinstance(match, dict) else {}
+        coverage = float(match.get("coverage") or 0)
+        hit_count = int(match.get("hit_count") or 0)
+        ingredient_total = int(match.get("total") or 0)
+        missing = match.get("missing") if isinstance(match.get("missing"), list) else []
+        if missing:
+            shown = "、".join(str(value) for value in missing[:6])
+            more = len(missing) - 6
+            note = f"还缺：{shown}{f' 等 {len(missing)} 项' if more > 0 else ''}"
+        else:
+            note = "手头原料已齐全，可以直接开做。"
+        choice = _recipe_choice(
+            item,
+            len(choices) + 1,
+            badge="原料匹配",
+            note=note,
+            extra_metadata=[
+                ("覆盖", f"{coverage * 100:.0f}%"),
+                ("已有", f"{hit_count}/{ingredient_total}"),
+            ],
+        )
+        if choice:
+            choices.append(choice)
+    have = meta.get("have") if isinstance(meta.get("have"), list) else []
+    mode = str(meta.get("mode") or "loose")
+    mode_label = "严格齐全" if mode == "strict" else "宽松推荐"
+    description = (
+        f"手头有 {'、'.join(str(value) for value in have) or '这些原料'}；"
+        f"按{mode_label}找到 {len(choices)} 道可选菜谱。"
+    )
+    return Document(
+        title="家里有什么，就做什么",
+        kicker="HOW TO COOK · PANTRY MATCH",
+        description=description,
+        stats=[("匹配", str(len(choices))), ("模式", mode_label), ("原料", str(len(have)))],
+        sections=_choice_sections(choices)
+        or [Section("没有结果", "可以切换宽松模式，或补充更多调味料后再试。")],
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-食材找菜",
+        layout="recipe_list",
+        recipe_choices=choices,
+    )
+
+
+def related_recipes_document(
+    data: Any,
+    meta: dict[str, Any],
+    *,
+    asset_base_url: str,
+) -> Document:
+    items = data if isinstance(data, list) else []
+    choices: list[RecipeListItem] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        score = item.get("score")
+        shared = int(item.get("shared_ingredients") or 0)
+        choice = _recipe_choice(
+            item,
+            len(choices) + 1,
+            badge="相似菜谱",
+            extra_metadata=[("相似分", _text(score)), ("共同原料", f"{shared} 项")],
+        )
+        if choice:
+            choices.append(choice)
+    source_title = _text(meta.get("title"), "这道菜")
+    return Document(
+        title=f"和「{source_title}」相似的菜",
+        kicker="HOW TO COOK · RELATED",
+        description="按原料重合度与同分类权重，为你找到这些相近做法。",
+        stats=[("推荐", str(len(choices))), ("原菜谱", source_title)],
+        sections=_choice_sections(choices) or [Section("没有结果", "暂时没有找到足够相似的菜谱。")],
+        asset_base_url=asset_base_url,
+        filename_hint=f"HowToCook-{source_title}-相似菜谱",
+        layout="recipe_list",
+        recipe_choices=choices,
+    )
+
+
+def aggregate_search_document(
+    data: Any,
+    meta: dict[str, Any],
+    *,
+    asset_base_url: str,
+) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    recipe_payload = payload.get("recipes") if isinstance(payload.get("recipes"), dict) else {}
+    tip_payload = payload.get("tips") if isinstance(payload.get("tips"), dict) else {}
+    recipe_items = (
+        recipe_payload.get("items") if isinstance(recipe_payload.get("items"), list) else []
+    )
+    tip_items = tip_payload.get("items") if isinstance(tip_payload.get("items"), list) else []
+    choices: list[RecipeListItem] = []
+    for item in recipe_items:
+        if isinstance(item, dict):
+            choice = _recipe_choice(item, len(choices) + 1, badge="菜谱")
+            if choice:
+                choices.append(choice)
+    for item in tip_items:
+        if isinstance(item, dict):
+            choice = _tip_choice(item, len(choices) + 1)
+            if choice:
+                choices.append(choice)
+    recipe_total = int(recipe_payload.get("total") or 0)
+    tip_total = int(tip_payload.get("total") or 0)
+    query = _text(meta.get("q"), "关键词")
+    return Document(
+        title="菜谱与厨房知识",
+        kicker="HOW TO COOK · GLOBAL SEARCH",
+        description=(
+            f"“{query}”共命中 {recipe_total} 道菜谱和 {tip_total} 篇厨房技巧；"
+            "当前展示相关度最高的结果。"
+        ),
+        stats=[("菜谱", str(recipe_total)), ("技巧", str(tip_total)), ("展示", str(len(choices)))],
+        sections=_choice_sections(choices)
+        or [Section("没有结果", "换个菜名、原料、拼音或知识关键词再试试。")],
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-全局搜索",
+        layout="recipe_list",
+        recipe_choices=choices,
+    )
+
+
+def menu_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    definitions = [
+        ("meat", "荤菜与水产", "🥩"),
+        ("vegetable", "时蔬", "🥬"),
+        ("soup", "汤与粥", "🥣"),
+    ]
+    choices: list[RecipeListItem] = []
+    groups: list[ChoiceGroup] = []
+    sections: list[Section] = []
+    for key, title, icon in definitions:
+        raw_items = payload.get(key) if isinstance(payload.get(key), list) else []
+        group_items: list[RecipeListItem] = []
+        for item in raw_items:
+            if not isinstance(item, dict):
+                continue
+            choice = _recipe_choice(item, len(choices) + 1, badge=title)
+            if choice:
+                choices.append(choice)
+                group_items.append(choice)
+        groups.append(ChoiceGroup(key=key, title=title, icon=icon, items=group_items))
+        sections.append(
+            Section(
+                title,
+                "\n".join(f"{choice.number}. {choice.title}" for choice in group_items)
+                or "本次未安排",
+            )
+        )
+    unfilled = meta.get("unfilled") if isinstance(meta.get("unfilled"), list) else []
+    description = "一荤一素一汤已经替你搭好，也可以调整每类数量和最高难度。"
+    if unfilled:
+        description += f" 候选池不足：{'、'.join(str(value) for value in unfilled)}。"
+    max_difficulty = meta.get("max_difficulty")
+    stats = [("共计", f"{len(choices)} 道"), ("种子", _text(meta.get("seed"), "随机"))]
+    if max_difficulty is not None:
+        stats.insert(1, ("最高难度", f"{max_difficulty} 星"))
+    return Document(
+        title="七七今日配餐",
+        kicker="HOW TO COOK · SMART MENU",
+        description=description,
+        stats=stats,
+        sections=sections,
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-今日配餐",
+        layout="menu",
+        recipe_choices=choices,
+        choice_groups=groups,
+    )
+
+
+def _chart_group(title: str, values: list[tuple[str, int]], description: str = "") -> ChartGroup:
+    maximum = max((value for _, value in values), default=0)
+    bars = [
+        ChartBar(
+            label=label,
+            value=str(value),
+            percent=round(value / maximum * 100, 1) if maximum else 0,
+        )
+        for label, value in values
+    ]
+    return ChartGroup(title=title, description=description, bars=bars)
+
+
+def stats_document(data: Any, *, asset_base_url: str) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    categories = payload.get("categories") if isinstance(payload.get("categories"), list) else []
+    category_values = [
+        (_text(item.get("title")), int(item.get("count") or 0))
+        for item in categories
+        if isinstance(item, dict)
+    ]
+    difficulty = payload.get("difficulty") if isinstance(payload.get("difficulty"), dict) else {}
+    difficulty_values = [
+        (f"难度 {level} 星", int(difficulty.get(str(level)) or 0)) for level in range(1, 6)
+    ]
+    methods = payload.get("methods") if isinstance(payload.get("methods"), list) else []
+    method_values = [
+        (_text(item.get("name")), int(item.get("count") or 0))
+        for item in methods[:10]
+        if isinstance(item, dict)
+    ]
+    ingredients = (
+        payload.get("top_ingredients") if isinstance(payload.get("top_ingredients"), list) else []
+    )
+    ingredient_values = [
+        (_text(item.get("name")), int(item.get("count") or 0))
+        for item in ingredients[:12]
+        if isinstance(item, dict)
+    ]
+    charts = [
+        _chart_group("分类分布", category_values, "社区菜谱在各类目中的数量"),
+        _chart_group("难度分布", difficulty_values, "从一星入门到五星挑战"),
+        _chart_group("常见烹饪方式", method_values, "按菜谱中识别到的烹饪方式统计"),
+        _chart_group("高频原料", ingredient_values, "同义原料已归一后统计"),
+    ]
+    avg_calories = payload.get("avg_calories")
+    with_time = int(payload.get("recipes_with_time_estimate") or 0)
+    sections = [
+        Section("分类分布", "\n".join(f"• {name}：{count}" for name, count in category_values)),
+        Section("难度分布", "\n".join(f"• {name}：{count}" for name, count in difficulty_values)),
+        Section("常见方式", "\n".join(f"• {name}：{count}" for name, count in method_values)),
+        Section("高频原料", "\n".join(f"• {name}：{count}" for name, count in ingredient_values)),
+    ]
+    return Document(
+        title="HowToCook 全库一览",
+        kicker="HOW TO COOK · DATA INSIGHTS",
+        description="从分类、难度、做法与高频原料，快速认识整个社区菜谱库。",
+        stats=[
+            ("菜谱", str(payload.get("recipes") or 0)),
+            ("技巧", str(payload.get("tips") or 0)),
+            ("平均热量", f"{_text(avg_calories)} 大卡"),
+            ("标注耗时", str(with_time)),
+        ],
+        sections=sections,
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-全库统计",
+        layout="stats",
+        charts=charts,
+    )
+
+
+def _short_commit(value: Any) -> str:
+    text = _text(value, "未知")
+    return text[:10] if len(text) >= 10 else text
+
+
+def content_info_document(data: Any, *, asset_base_url: str) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    if not payload.get("tracked"):
+        return Document(
+            title="菜谱内容版本",
+            kicker="HOW TO COOK · CONTENT VERSION",
+            description="当前内容目录没有 Git 版本信息。",
+            sections=[Section("状态", _text(payload.get("reason"), "无法管理内容版本"))],
+            asset_base_url=asset_base_url,
+            filename_hint="HowToCook-内容版本",
+        )
+    last_check = payload.get("last_check")
+    last_update = payload.get("last_update")
+    details = [
+        f"完整提交：{_text(payload.get('commit'))}",
+        f"提交时间：{_text(payload.get('committed_at'))}",
+        f"分支：{_text(payload.get('branch'))}",
+        f"上游：{_text(payload.get('remote'))}",
+        f"工作区：{'干净' if payload.get('clean') else '存在本地修改'}",
+        f"更新器：{'正在更新' if payload.get('updating') else '空闲'}",
+        f"最近检查：{_text(last_check.get('at')) if isinstance(last_check, dict) else '尚未检查'}",
+        (
+            "最近更新："
+            f"{_text(last_update.get('at')) if isinstance(last_update, dict) else '尚未更新'}"
+        ),
+    ]
+    return Document(
+        title="菜谱内容版本",
+        kicker="HOW TO COOK · CONTENT VERSION",
+        description="查看 HowToCook 社区内容快照与更新器状态，不会修改内容。",
+        stats=[
+            ("提交", _short_commit(payload.get("commit"))),
+            ("分支", _text(payload.get("branch"))),
+            ("工作区", "干净" if payload.get("clean") else "有修改"),
+        ],
+        sections=[Section("版本详情", "\n".join(details))],
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-内容版本",
+    )
+
+
+def content_check_document(data: Any, *, asset_base_url: str) -> Document:
+    payload = data if isinstance(data, dict) else {}
+    up_to_date = bool(payload.get("up_to_date"))
+    details = [
+        f"本地提交：{_text(payload.get('local'))}",
+        f"上游提交：{_text(payload.get('remote'))}",
+        f"本地提交时间：{_text(payload.get('local_committed_at'))}",
+        f"检查时间：{_text(payload.get('checked_at'))}",
+        f"上游地址：{_text(payload.get('remote_url'))}",
+    ]
+    return Document(
+        title="菜谱内容检查",
+        kicker="HOW TO COOK · UPDATE CHECK",
+        description="当前内容已经是最新版本。" if up_to_date else "检测到上游有新的菜谱内容。",
+        stats=[
+            ("状态", "已是最新" if up_to_date else "发现更新"),
+            ("本地", _short_commit(payload.get("local"))),
+            ("上游", _short_commit(payload.get("remote"))),
+        ],
+        sections=[
+            Section("检查结果", "\n".join(details)),
+            Section("安全说明", "插件只提供版本检查，不向聊天用户开放内容更新操作。"),
+        ],
+        asset_base_url=asset_base_url,
+        filename_hint="HowToCook-内容检查",
     )
 
 
@@ -410,24 +842,24 @@ def health_document(data: Any, *, asset_base_url: str) -> Document:
 
 def tips_list_document(data: Any, meta: dict[str, Any], *, asset_base_url: str) -> Document:
     items = data if isinstance(data, list) else []
-    sections = []
-    for index, item in enumerate(items, 1):
-        if isinstance(item, dict):
-            sections.append(
-                Section(
-                    f"{index}. {_text(item.get('title'), '未命名技巧')}",
-                    f"ID：{_text(item.get('id'))}\n分组：{_text(item.get('group'))}\n更新：{_text(item.get('updated_at'))}",
-                )
-            )
-    total = int(meta.get("total") or len(sections))
+    choices: list[RecipeListItem] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        choice = _tip_choice(item, len(choices) + 1)
+        if choice:
+            choices.append(choice)
+    total = int(meta.get("total") or len(choices))
     return Document(
         title="烹饪技巧",
         kicker="HOW TO COOK · TIPS",
         description=f"找到 {total} 篇厨房准备、进阶知识与安全提示。",
         stats=[("文档", str(total)), ("页码", f"{meta.get('page', 1)}/{meta.get('pages', 1)}")],
-        sections=sections or [Section("没有结果", "换个关键词再试试。")],
+        sections=_choice_sections(choices) or [Section("没有结果", "换个关键词再试试。")],
         asset_base_url=asset_base_url,
         filename_hint="HowToCook-烹饪技巧",
+        layout="recipe_list",
+        recipe_choices=choices,
     )
 
 
@@ -652,6 +1084,18 @@ def markdown_sections(sections: Iterable[Section]) -> str:
 def help_document(*, asset_base_url: str) -> Document:
     sections = [
         Section(
+            "智能推荐",
+            "\n".join(
+                [
+                    "• 做饭 随机 [数量] [--分类 soup] [--难度 2]",
+                    "• 做饭 配餐 [--荤 1 --素 1 --汤 1 --最高难度 3]",
+                    "• 做饭 食材 鸡蛋 西红柿 [--严格] [--数量 8]",
+                    "• 做饭 相关 <菜谱 ID或路径> [--数量 5]",
+                    "• 一个候选会直接打开详情；多个候选回复卡片序号选择",
+                ]
+            ),
+        ),
+        Section(
             "搜索与筛选",
             "\n".join(
                 [
@@ -659,7 +1103,9 @@ def help_document(*, asset_base_url: str) -> Document:
                     "• 做饭 hsr（支持拼音全拼/首字母）",
                     "• 做饭 搜索 土豆 --原料 牛肉 --最高难度 3 --页 1",
                     "• 仅一个结果会直接展示详情；多个结果发送卡片序号选择",
+                    "• 做饭 全局搜索 备菜（同时搜索菜谱与厨房技巧）",
                     "• 做饭 分类",
+                    "• 做饭 统计",
                 ]
             ),
         ),
@@ -685,12 +1131,13 @@ def help_document(*, asset_base_url: str) -> Document:
             ),
         ),
         Section(
-            "输出与高级入口",
+            "版本、输出与高级入口",
             "\n".join(
                 [
+                    "• 做饭 内容版本 / 做饭 内容检查（只读，不执行更新）",
                     "• 任意命令追加 --模式 合并|单条|组合|渲染",
                     "• 渲染命令可追加 --主题 自动|白天|夜间",
-                    "• 做饭 接口 recipes q=番茄 page_size=5",
+                    "• 做饭 接口 stats（受控只读 GET 入口）",
                     "• 做饭 健康",
                 ]
             ),
@@ -699,8 +1146,8 @@ def help_document(*, asset_base_url: str) -> Document:
     return Document(
         title="今天吃什么？",
         kicker="HOW TO COOK · COMMAND GUIDE",
-        description="搜索 368+ 道社区菜谱，查看完整原料、步骤、成品图与厨房技巧。",
-        stats=[("模式", "长图 / 合并 / 单条 / 组合"), ("主题", "自动昼夜")],
+        description="随机推荐、智能配餐、按手头原料找菜，并查看完整做法与厨房技巧。",
+        stats=[("新版", "推荐 / 配餐 / 统计"), ("模式", "长图 / 合并 / 单条 / 组合")],
         sections=sections,
         asset_base_url=asset_base_url,
         filename_hint="HowToCook-帮助",
